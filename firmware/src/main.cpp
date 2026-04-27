@@ -6,6 +6,20 @@
 #include <Arduino.h>
 #include <array>
 
+#if !defined(SIMULATOR)
+#  include <WiFi.h>
+#  include <time.h>
+#  if __has_include("wifi_credentials.h")
+#    include "wifi_credentials.h"
+#  endif
+#  ifndef WIFI_SSID
+#    define WIFI_SSID ""
+#  endif
+#  ifndef WIFI_PASS
+#    define WIFI_PASS ""
+#  endif
+#endif
+
 #include "adapters/ArduinoClock.h"
 #include "adapters/LvglDisplay.h"
 #include "adapters/NoopNetwork.h"
@@ -16,9 +30,11 @@
 #include "domain/MoodCalculator.h"
 
 #if defined(SIMULATOR)
+#  include "adapters/NoopPreferences.h"
 #  include "adapters/NoopStorage.h"
 #else
 #  include "adapters/LittleFsStorage.h"
+#  include "adapters/NvsPreferences.h"
 #endif
 
 #if defined(SIMULATOR)
@@ -49,8 +65,10 @@ feedme::adapters::LvglDisplay display;
 feedme::adapters::NoopNetwork network;
 #if defined(SIMULATOR)
 feedme::adapters::NoopStorage     storage;
+feedme::adapters::NoopPreferences prefs;
 #else
 feedme::adapters::LittleFsStorage storage;
+feedme::adapters::NvsPreferences  prefs;
 #endif
 #if defined(SIMULATOR)
 feedme::adapters::StubTapSensor       taps;
@@ -64,6 +82,49 @@ feedme::adapters::LedRing             leds;     // 5-LED WS2812 ring
 constexpr uint32_t LED_FEED_COLOR    = 0x00FF40;  // green
 constexpr uint32_t LED_SNOOZE_COLOR  = 0x6644FF;  // purple
 constexpr uint32_t LED_HISTORY_COLOR = 0x00AAFF;  // cyan
+
+#if !defined(SIMULATOR)
+// Bring up Wi-Fi (using build-flag credentials from wifi_credentials.h)
+// and request an SNTP sync. Blocks up to ~15 s for association +
+// up to ~5 s for the first NTP packet. Best-effort — failures are
+// logged and the firmware continues; ArduinoClock falls back to
+// millis()/1000 if time(nullptr) never crosses 2020.
+void connectWifiAndSyncTime() {
+    if (WIFI_SSID[0] == '\0') {
+        Serial.println("[wifi] no credentials provided — skipping "
+                       "(see firmware/include/wifi_credentials.h.example)");
+        return;
+    }
+    Serial.printf("[wifi] connecting to '%s'...\n", WIFI_SSID);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+    const uint32_t assocDeadline = millis() + 15000;
+    while (WiFi.status() != WL_CONNECTED && millis() < assocDeadline) {
+        delay(250);
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[wifi] connect timeout — continuing offline");
+        return;
+    }
+    Serial.printf("[wifi] connected, ip=%s rssi=%d\n",
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
+
+    // SNTP. UTC; the cat doesn't care about TZ.
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    const uint32_t ntpDeadline = millis() + 5000;
+    while (time(nullptr) < 1577836800 && millis() < ntpDeadline) {
+        delay(100);
+    }
+    const time_t now = time(nullptr);
+    if (now >= 1577836800) {
+        Serial.printf("[ntp] synced, epoch=%lld\n",
+                      static_cast<long long>(now));
+    } else {
+        Serial.println("[ntp] sync timeout — continuing without real time");
+    }
+}
+#endif
 
 // Ambient breathing colour per mood. 0 = LEDs off.
 uint32_t ambientColorFor(feedme::domain::Mood m) {
@@ -84,7 +145,7 @@ constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
 feedme::application::FeedingService feeding(appClock, network, storage);
 feedme::application::DisplayCoordinator displayCoord(
-    display, feeding, appClock, HUNGRY_THRESHOLD_SEC);
+    display, feeding, appClock, prefs, HUNGRY_THRESHOLD_SEC);
 
 uint32_t lastServiceTickMs = 0;
 
@@ -112,8 +173,14 @@ void setup() {
     display.begin();
     Serial.println("[feedme] display ready");
 
+#if !defined(SIMULATOR)
+    connectWifiAndSyncTime();
+#endif
+
     network.begin();
     storage.begin();
+    prefs.begin();
+    displayCoord.loadPreferences();
     feeding.loadHistoryFromStorage();
     taps.begin();
     button.begin();
