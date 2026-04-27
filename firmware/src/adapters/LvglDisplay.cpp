@@ -36,7 +36,10 @@ void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
     const uint32_t h = area->y2 - area->y1 + 1;
     tft.startWrite();
     tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors(reinterpret_cast<uint16_t*>(&color_p->full), w * h, true);
+    // CrowPanel GC9A01 wants RGB565 bytes in LVGL's native order — passing
+    // swap_bytes=true here turned dark navy (#1a1a24) into bright violet
+    // and red (#f87171) into green. swap_bytes=false renders correctly.
+    tft.pushColors(reinterpret_cast<uint16_t*>(&color_p->full), w * h, false);
     tft.endWrite();
     lv_disp_flush_ready(drv);
 }
@@ -52,12 +55,14 @@ void LvglDisplay::begin() {
 
     tft.init();
     tft.setRotation(0);
-    // The GC9A01 panel on the CrowPanel ships with its display-inversion
-    // bit the opposite of TFT_eSPI's default; without this toggle dark
-    // pixels render bright and red/green swap. Symptom on the bench:
-    // the "FEED ME" hungry state shows up with a green ring instead of
-    // red, and the dark-blue face panel renders bright violet.
-    tft.invertDisplay(true);
+
+    // TFT_eSPI's GC9A01 init sequence hard-codes BGR pixel order and
+    // ignores TFT_RGB_ORDER for this driver. The CrowPanel's GC9A01
+    // wants RGB. Force MADCTL bit 3 (BGR) to 0 by writing the register
+    // directly. Byte 0x00 = no row/col flip, RGB order.
+    tft.writecommand(0x36);  // MADCTL
+    tft.writedata(0x00);     // MY=0 MX=0 MV=0 ML=0 BGR=0 MH=0
+
     tft.fillScreen(TFT_BLACK);
 
     lv_init();
