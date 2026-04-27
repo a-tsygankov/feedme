@@ -10,9 +10,15 @@
 #include "adapters/NoopNetwork.h"
 #include "adapters/NoopStorage.h"
 #include "adapters/SimulatedClock.h"
-#include "adapters/StubTapSensor.h"
 #include "application/DisplayCoordinator.h"
 #include "application/FeedingService.h"
+
+#if defined(SIMULATOR)
+#  include "adapters/StubTapSensor.h"
+#else
+#  include "adapters/Cst816TapSensor.h"
+#  include "adapters/EncoderButtonSensor.h"
+#endif
 
 namespace {
 
@@ -30,10 +36,18 @@ feedme::adapters::ArduinoClock realClock;
 feedme::ports::IClock& clock = realClock;
 #endif
 
-feedme::adapters::LvglDisplay   display;
-feedme::adapters::NoopNetwork   network;
-feedme::adapters::NoopStorage   storage;
-feedme::adapters::StubTapSensor taps;
+feedme::adapters::LvglDisplay display;
+feedme::adapters::NoopNetwork network;
+feedme::adapters::NoopStorage storage;
+#if defined(SIMULATOR)
+feedme::adapters::StubTapSensor       taps;
+feedme::adapters::StubTapSensor       button;
+#else
+feedme::adapters::Cst816TapSensor     taps;     // capacitive screen
+feedme::adapters::EncoderButtonSensor button;   // physical knob press
+#endif
+
+constexpr int SNOOZE_DURATION_SEC = 30 * 60;  // long-press = 30 minutes
 
 feedme::application::FeedingService feeding(clock, network, storage);
 feedme::application::DisplayCoordinator displayCoord(
@@ -68,6 +82,38 @@ void setup() {
     network.begin();
     storage.begin();
     taps.begin();
+    button.begin();
+
+    // Two input devices, one shared handler. Capacitive screen taps
+    // and physical knob presses both end up here.
+    //
+    //   Tap        (capacitive)   -> log feed
+    //   DoubleTap  (capacitive)   -> view history (TODO)
+    //   Press      (physical)     -> log feed (alternative tactile path)
+    //   LongPress  (physical)     -> snooze 30 min
+    auto handleInput = [](feedme::ports::TapEvent ev) {
+        using E = feedme::ports::TapEvent;
+        switch (ev) {
+            case E::Tap:
+                Serial.println("[input] tap -> log feed");
+                feeding.logFeeding("user");
+                break;
+            case E::Press:
+                Serial.println("[input] press -> log feed");
+                feeding.logFeeding("user");
+                break;
+            case E::DoubleTap:
+                Serial.println("[input] double-tap -> history (TODO)");
+                break;
+            case E::LongPress:
+                Serial.println("[input] long-press -> snooze 30m");
+                feeding.snooze("user", SNOOZE_DURATION_SEC);
+                break;
+        }
+    };
+    taps.onEvent(handleInput);
+    button.onEvent(handleInput);
+
     Serial.println("[feedme] setup complete");
 
 #if defined(SIMULATOR)
@@ -90,6 +136,7 @@ void loop() {
     }
 
     taps.poll();
+    button.poll();
 
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
