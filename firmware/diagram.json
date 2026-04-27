@@ -8,8 +8,8 @@
       "id": "esp",
       "top": 0,
       "left": 0,
-      "attrs": { "flash": "16" }
-    },
+      "attrs": { "flashSize": "16", "psramSize": "2", "psramType": "quad" }    
+  },
     {
       "type": "wokwi-ili9341",
       "id": "lcd",
