@@ -83,25 +83,32 @@ void LvglDisplay::buildScene() {
     lv_obj_set_style_arc_color(arc_, lv_color_hex(0x222), LV_PART_MAIN);
     lv_obj_center(arc_);
 
+    // Inner background panel (still a dark circle — gives the cat a backdrop
+    // distinct from the surrounding screen and matches the mockup's surface).
     face_ = lv_obj_create(scr);
-    lv_obj_set_size(face_, 180, 180);
+    lv_obj_set_size(face_, 200, 200);
     lv_obj_set_style_radius(face_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(face_, 0, 0);
     lv_obj_set_style_bg_color(face_, lv_color_hex(0x1a1a24), 0);
-    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(face_, 0, 0);
+    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_center(face_);
+
+    // Simon's Cat-style face — primitive widgets, mood-driven.
+    cat_.begin(face_);
+    cat_.align(LV_ALIGN_CENTER, 0, -25);
 
     moodLbl_ = lv_label_create(face_);
     lv_obj_set_style_text_color(moodLbl_, lv_color_white(), 0);
-    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_18, 0);
     lv_label_set_text(moodLbl_, "...");
-    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, 38);
 
     timeLbl_ = lv_label_create(face_);
     lv_obj_set_style_text_color(timeLbl_, lv_color_hex(0x888), 0);
     lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(timeLbl_, "");
-    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 18);
+    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 60);
 
     for (int i = 0; i < 3; ++i) {
         dots_[i] = lv_obj_create(scr);
@@ -128,6 +135,10 @@ void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
 
     lv_arc_set_value(arc_, static_cast<int>(frame.ringProgress * 100));
     lv_obj_set_style_arc_color(arc_, lv_color_hex(p.ring), LV_PART_INDICATOR);
+
+    if (frame.mood != lastFrame_.mood || firstRender_) {
+        cat_.setMood(frame.mood);
+    }
 
     lv_label_set_text(moodLbl_, p.label);
     lv_obj_set_style_text_color(moodLbl_, lv_color_hex(p.ring), 0);
