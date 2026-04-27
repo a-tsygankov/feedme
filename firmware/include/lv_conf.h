@@ -6,7 +6,11 @@
 #include <stdint.h>
 
 #define LV_COLOR_DEPTH            16
-#define LV_COLOR_16_SWAP          1
+// 0 = LVGL packs RGB565 as standard {red:5, green:6, blue:5}. Our flush
+// callback in adapters/LvglDisplay.cpp does the R↔B channel swap that
+// the CrowPanel GC9A01 needs, then pushes with TFT_eSPI's swap_bytes
+// to get big-endian byte order for the panel.
+#define LV_COLOR_16_SWAP          0
 #define LV_MEM_CUSTOM             0
 #define LV_MEM_SIZE               (48U * 1024U)
 #define LV_TICK_CUSTOM            1
