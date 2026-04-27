@@ -131,6 +131,58 @@ void LvglDisplay::buildScene() {
         lv_obj_clear_flag(dots_[i], LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_align(dots_[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 16, -16);
     }
+
+    buildHistoryOverlay();
+}
+
+void LvglDisplay::buildHistoryOverlay() {
+    lv_obj_t* scr = lv_scr_act();
+
+    // Full-screen panel that covers the cat scene when visible.
+    historyPanel_ = lv_obj_create(scr);
+    lv_obj_set_size(historyPanel_, 240, 240);
+    lv_obj_center(historyPanel_);
+    lv_obj_set_style_radius(historyPanel_, 0, 0);
+    lv_obj_set_style_bg_color(historyPanel_, lv_color_hex(0x0f0f14), 0);
+    lv_obj_set_style_bg_opa(historyPanel_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(historyPanel_, 0, 0);
+    lv_obj_set_style_pad_all(historyPanel_, 8, 0);
+    lv_obj_clear_flag(historyPanel_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(historyPanel_, LV_OBJ_FLAG_HIDDEN);
+
+    historyTitle_ = lv_label_create(historyPanel_);
+    lv_obj_set_style_text_color(historyTitle_, lv_color_white(), 0);
+    lv_obj_set_style_text_font(historyTitle_, &lv_font_montserrat_18, 0);
+    lv_label_set_text(historyTitle_, "history");
+    lv_obj_align(historyTitle_, LV_ALIGN_TOP_MID, 0, 30);
+
+    for (int i = 0; i < HISTORY_MAX; ++i) {
+        historyLines_[i] = lv_label_create(historyPanel_);
+        lv_obj_set_style_text_color(historyLines_[i], lv_color_hex(0xc0c0d0), 0);
+        lv_obj_set_style_text_font(historyLines_[i], &lv_font_montserrat_14, 0);
+        lv_label_set_text(historyLines_[i], "");
+        lv_obj_align(historyLines_[i], LV_ALIGN_TOP_MID, 0, 70 + i * 20);
+    }
+}
+
+void LvglDisplay::setHistory(const HistoryItem* items, int count) {
+    if (count > HISTORY_MAX) count = HISTORY_MAX;
+    for (int i = 0; i < HISTORY_MAX; ++i) {
+        const char* text = (i < count) ? items[i].line : "";
+        lv_label_set_text(historyLines_[i], text);
+    }
+    if (count == 0) {
+        lv_label_set_text(historyLines_[0], "(no events yet)");
+    }
+}
+
+void LvglDisplay::setHistoryVisible(bool visible) {
+    historyVisible_ = visible;
+    if (visible) {
+        lv_obj_clear_flag(historyPanel_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(historyPanel_, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {

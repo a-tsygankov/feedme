@@ -46,7 +46,9 @@ void FeedingService::logFeeding(const char* by) {
     ev.type = "feed";
     ev.by = by ? by : "";
     storage_.enqueue(ev);
+    storage_.recordHistory(ev);
     network_.postFeed(ev.by, now);
+    appendHistory(now, "feed", by);
 }
 
 void FeedingService::snooze(const char* by, int durationSec) {
@@ -58,7 +60,46 @@ void FeedingService::snooze(const char* by, int durationSec) {
     ev.type = "snooze";
     ev.by = by ? by : "";
     storage_.enqueue(ev);
+    storage_.recordHistory(ev);
     network_.postSnooze(ev.by, now, durationSec);
+    appendHistory(now, "snooze", by);
+}
+
+void FeedingService::loadHistoryFromStorage() {
+    auto recent = storage_.loadRecentHistory(HISTORY_CAPACITY);
+    // recent is newest-first; replay oldest-first into the ring buffer
+    // so the ordering inside history_ matches what live appends produce.
+    for (auto it = recent.rbegin(); it != recent.rend(); ++it) {
+        appendHistory(it->ts, it->type.c_str(), it->by.c_str());
+    }
+    // Best-effort: reseed lastFeedTs/todayCount from the most recent
+    // feed event so the ring/mood reflect prior-session activity.
+    for (const auto& ev : recent) {
+        if (ev.type == "feed") {
+            state_.lastFeedTs = ev.ts;
+            break;
+        }
+    }
+}
+
+void FeedingService::appendHistory(int64_t ts, const char* type, const char* by) {
+    auto& slot = history_[historyHead_];
+    slot.ts   = ts;
+    slot.type = type ? type : "";
+    slot.by   = by   ? by   : "";
+    historyHead_ = (historyHead_ + 1) % HISTORY_CAPACITY;
+    if (historyCount_ < HISTORY_CAPACITY) ++historyCount_;
+}
+
+size_t FeedingService::copyRecentEvents(
+    std::array<HistoryEntry, HISTORY_CAPACITY>& out) const {
+    // Newest-first: start from the slot just before head and walk back.
+    size_t idx = historyHead_;
+    for (size_t i = 0; i < historyCount_; ++i) {
+        idx = (idx == 0 ? HISTORY_CAPACITY : idx) - 1;
+        out[i] = history_[idx];
+    }
+    return historyCount_;
 }
 
 }  // namespace feedme::application
