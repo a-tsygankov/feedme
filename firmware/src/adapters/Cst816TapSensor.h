@@ -26,11 +26,12 @@ private:
     void emit(feedme::ports::TapEvent ev);
 
     Listener  listener_;
-    bool      wasTouching_  = false;
-    bool      pendingTap_   = false;
-    uint32_t  touchStartMs_ = 0;
-    uint32_t  lastTapEndMs_ = 0;
-    uint32_t  lastPollMs_   = 0;
+    bool      wasTouching_     = false;
+    bool      pendingTap_      = false;
+    bool      longTouchFired_  = false;
+    uint32_t  touchStartMs_    = 0;
+    uint32_t  lastTapEndMs_    = 0;
+    uint32_t  lastPollMs_      = 0;
 };
 
 }  // namespace feedme::adapters

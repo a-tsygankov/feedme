@@ -69,17 +69,22 @@ void Cst816TapSensor::poll() {
 
     if (touching && !wasTouching_) {
         // Touch just started.
-        wasTouching_  = true;
-        touchStartMs_ = now;
+        wasTouching_    = true;
+        touchStartMs_   = now;
+        longTouchFired_ = false;
+    } else if (touching && wasTouching_) {
+        // Held — fire LongTouch eagerly once the threshold trips so
+        // the user gets feedback while still pressing.
+        if (!longTouchFired_ && (now - touchStartMs_) >= LONG_TOUCH_MS) {
+            longTouchFired_ = true;
+            emit(feedme::ports::TapEvent::LongTouch);
+            pendingTap_ = false;
+        }
     } else if (!touching && wasTouching_) {
         // Touch just ended.
         wasTouching_ = false;
-        const uint32_t duration = now - touchStartMs_;
-
-        if (duration >= LONG_TOUCH_MS) {
-            // Long capacitive holds are ignored — those should come
-            // through the physical knob press instead.
-            pendingTap_ = false;
+        if (longTouchFired_) {
+            // Already fired LongTouch mid-hold; release is a no-op.
         } else if (pendingTap_ && (now - lastTapEndMs_) < DOUBLE_TAP_MS) {
             // Second short tap inside the double-tap window.
             emit(feedme::ports::TapEvent::DoubleTap);
@@ -101,7 +106,11 @@ void Cst816TapSensor::poll() {
 
 void Cst816TapSensor::emit(feedme::ports::TapEvent ev) {
     using E = feedme::ports::TapEvent;
-    const char* name = ev == E::Tap ? "tap" : "double-tap";
+    const char* name =
+        ev == E::Tap        ? "tap" :
+        ev == E::DoubleTap  ? "double-tap" :
+        ev == E::LongTouch  ? "long-touch" :
+                              "?";
     Serial.printf("[cst816] %s\n", name);
     if (listener_) listener_(ev);
 }

@@ -4,23 +4,33 @@
 
 namespace feedme::ports {
 
-// Two distinct input paths feed into a single event stream:
+// Three distinct input channels feed into a single event stream:
 //
-//   Capacitive screen (CST816D-style touch IC):
-//     Tap        — finger lightly taps the LCD glass
-//     DoubleTap  — two quick taps within ~300 ms
+//   Capacitive screen (CST816D-style touch IC) — light finger contact:
+//     Tap         — quick touch and release
+//     DoubleTap   — two quick taps within ~300 ms
+//     LongTouch   — finger held on the glass past ~600 ms
 //
-//   Physical knob/screen press (rotary-encoder push button):
-//     Press      — full tactile click of the whole knob
-//     LongPress  — knob held down longer than ~600 ms
+//   Physical knob press (rotary-encoder push switch) — tactile click:
+//     Press       — full click and release
+//     DoublePress — two clicks within ~350 ms
+//     LongPress   — knob held down past ~600 ms
+//
+//   Rotary encoder rotation:
+//     RotateCW    — clockwise detent
+//     RotateCCW   — counter-clockwise detent
 //
 // Adapters fire whichever events match their input device. The
-// composition root maps them to actions.
+// composition root maps each to an action.
 enum class TapEvent {
-    Tap,        // capacitive: light single tap on the screen surface
-    DoubleTap,  // capacitive: two taps within the double-tap window
-    Press,      // physical: tactile click of the whole knob/screen
-    LongPress,  // physical: knob held past the long-press threshold
+    Tap,
+    DoubleTap,
+    LongTouch,
+    Press,
+    DoublePress,
+    LongPress,
+    RotateCW,
+    RotateCCW,
 };
 
 class ITapSensor {

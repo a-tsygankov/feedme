@@ -84,30 +84,42 @@ void setup() {
     taps.begin();
     button.begin();
 
-    // Two input devices, one shared handler. Capacitive screen taps
-    // and physical knob presses both end up here.
+    // All eight input events route through one handler. Quick gestures
+    // log a feed, deliberate ones snooze, the rest are placeholders
+    // ready for menu / history / threshold tuning when those land.
     //
-    //   Tap        (capacitive)   -> log feed
-    //   DoubleTap  (capacitive)   -> view history (TODO)
-    //   Press      (physical)     -> log feed (alternative tactile path)
-    //   LongPress  (physical)     -> snooze 30 min
+    //   Tap          (capacitive)  -> log feed
+    //   Press        (physical)    -> log feed (alt tactile path)
+    //   DoubleTap    (capacitive)  -> history view  (TODO)
+    //   DoublePress  (physical)    -> history view  (TODO, alt path)
+    //   LongTouch    (capacitive)  -> menu / settings (TODO)
+    //   LongPress    (physical)    -> snooze 30 min
+    //   RotateCW     (knob)        -> menu next / +1   (TODO)
+    //   RotateCCW    (knob)        -> menu prev / -1   (TODO)
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
         switch (ev) {
             case E::Tap:
-                Serial.println("[input] tap -> log feed");
-                feeding.logFeeding("user");
-                break;
             case E::Press:
-                Serial.println("[input] press -> log feed");
+                Serial.println("[input] -> log feed");
                 feeding.logFeeding("user");
                 break;
             case E::DoubleTap:
-                Serial.println("[input] double-tap -> history (TODO)");
+            case E::DoublePress:
+                Serial.println("[input] -> history (TODO)");
+                break;
+            case E::LongTouch:
+                Serial.println("[input] -> menu (TODO)");
                 break;
             case E::LongPress:
-                Serial.println("[input] long-press -> snooze 30m");
+                Serial.println("[input] -> snooze 30m");
                 feeding.snooze("user", SNOOZE_DURATION_SEC);
+                break;
+            case E::RotateCW:
+                Serial.println("[input] -> rotate CW (TODO)");
+                break;
+            case E::RotateCCW:
+                Serial.println("[input] -> rotate CCW (TODO)");
                 break;
         }
     };
