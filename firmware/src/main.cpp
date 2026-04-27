@@ -12,6 +12,8 @@
 #include "adapters/SimulatedClock.h"
 #include "application/DisplayCoordinator.h"
 #include "application/FeedingService.h"
+#include "domain/Mood.h"
+#include "domain/MoodCalculator.h"
 
 #if defined(SIMULATOR)
 #  include "adapters/NoopStorage.h"
@@ -37,10 +39,10 @@ constexpr int64_t HUNGRY_THRESHOLD_SEC = 5 * 3600;
 // Fast-forward factor of 720 = 12 minutes per real second; full Happy→Hungry
 // arc takes ~25s of wall clock.
 feedme::adapters::SimulatedClock simClock(1745668800LL, 720);
-feedme::ports::IClock& clock = simClock;
+feedme::ports::IClock& appClock = simClock;
 #else
 feedme::adapters::ArduinoClock realClock;
-feedme::ports::IClock& clock = realClock;
+feedme::ports::IClock& appClock = realClock;
 #endif
 
 feedme::adapters::LvglDisplay display;
@@ -63,12 +65,26 @@ constexpr uint32_t LED_FEED_COLOR    = 0x00FF40;  // green
 constexpr uint32_t LED_SNOOZE_COLOR  = 0x6644FF;  // purple
 constexpr uint32_t LED_HISTORY_COLOR = 0x00AAFF;  // cyan
 
+// Ambient breathing colour per mood. 0 = LEDs off.
+uint32_t ambientColorFor(feedme::domain::Mood m) {
+    using M = feedme::domain::Mood;
+    switch (m) {
+        case M::Happy:   return 0x22FF44;  // green
+        case M::Neutral: return 0xFFEE00;  // yellow
+        case M::Warning: return 0xFF8800;  // orange
+        case M::Hungry:  return 0xFF1A1A;  // red
+        case M::Fed:     return 0x22FF44;  // green
+        case M::Sleepy:  return 0x6644FF;  // purple
+    }
+    return 0;
+}
+
 constexpr int SNOOZE_DURATION_SEC      = 30 * 60;  // long-press = 30 minutes
 constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
-feedme::application::FeedingService feeding(clock, network, storage);
+feedme::application::FeedingService feeding(appClock, network, storage);
 feedme::application::DisplayCoordinator displayCoord(
-    display, feeding, clock, HUNGRY_THRESHOLD_SEC);
+    display, feeding, appClock, HUNGRY_THRESHOLD_SEC);
 
 uint32_t lastServiceTickMs = 0;
 
@@ -119,6 +135,13 @@ void setup() {
     //   RotateCCW    (knob)        -> menu prev / -1   (TODO)
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
+
+        // Auto-dismiss the history overlay on any non-history gesture.
+        if (display.historyVisible() &&
+            ev != E::DoubleTap && ev != E::DoublePress) {
+            display.setHistoryVisible(false);
+        }
+
         switch (ev) {
             case E::Tap:
             case E::Press:
@@ -130,6 +153,12 @@ void setup() {
                 break;
             case E::DoubleTap:
             case E::DoublePress: {
+                // Toggle: a second double-gesture dismisses the overlay.
+                if (display.historyVisible()) {
+                    display.setHistoryVisible(false);
+                    Serial.println("[input] -> history (dismiss)");
+                    break;
+                }
                 Serial.println("[input] -> history");
 #if !defined(SIMULATOR)
                 leds.pulse(LED_HISTORY_COLOR, 300);
@@ -137,16 +166,28 @@ void setup() {
                 std::array<feedme::application::FeedingService::HistoryEntry,
                            feedme::application::FeedingService::HISTORY_CAPACITY> recent;
                 const size_t n = feeding.copyRecentEvents(recent);
-                if (n == 0) {
-                    Serial.println("  (no events yet)");
-                } else {
-                    for (size_t i = 0; i < n; ++i) {
-                        const auto& ev = recent[i];
-                        Serial.printf("  [%zu] ts=%lld type=%s by=%s\n",
-                                      i, static_cast<long long>(ev.ts),
-                                      ev.type.c_str(), ev.by.c_str());
+                feedme::adapters::HistoryItem items[
+                    feedme::adapters::LvglDisplay::HISTORY_MAX]{};
+                const int64_t now = appClock.nowSec();
+                for (size_t i = 0; i < n && i < (size_t)feedme::adapters::LvglDisplay::HISTORY_MAX; ++i) {
+                    const auto& e = recent[i];
+                    items[i].ts = e.ts;
+                    int64_t agoSec = (e.ts > 0 && now > e.ts) ? (now - e.ts) : 0;
+                    int agoMin = static_cast<int>(agoSec / 60);
+                    if (agoMin < 60) {
+                        snprintf(items[i].line, sizeof(items[i].line),
+                                 "%dm  %s", agoMin, e.type.c_str());
+                    } else {
+                        snprintf(items[i].line, sizeof(items[i].line),
+                                 "%dh%02dm  %s",
+                                 agoMin / 60, agoMin % 60, e.type.c_str());
                     }
+                    Serial.printf("  [%zu] ts=%lld type=%s by=%s\n",
+                                  i, static_cast<long long>(e.ts),
+                                  e.type.c_str(), e.by.c_str());
                 }
+                display.setHistory(items, static_cast<int>(n));
+                display.setHistoryVisible(true);
                 break;
             }
             case E::LongTouch:
@@ -206,6 +247,19 @@ void loop() {
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
         feeding.tick();
+
+#if !defined(SIMULATOR)
+        // Update ambient LED-ring colour when the mood changes.
+        static feedme::domain::Mood lastMood = feedme::domain::Mood::Happy;
+        static bool lastMoodValid = false;
+        const feedme::domain::Mood mood = feedme::domain::calculateMood(
+            feeding.state(), appClock.nowSec(), displayCoord.hungryThresholdSec());
+        if (!lastMoodValid || mood != lastMood) {
+            lastMoodValid = true;
+            lastMood = mood;
+            leds.setAmbient(ambientColorFor(mood));
+        }
+#endif
     }
 
     displayCoord.tick();

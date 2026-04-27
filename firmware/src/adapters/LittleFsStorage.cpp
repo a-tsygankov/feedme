@@ -8,8 +8,10 @@ namespace feedme::adapters {
 
 namespace {
 
-constexpr const char* PENDING_PATH = "/pending.jsonl";
-constexpr const char* HISTORY_PATH = "/history.jsonl";
+constexpr const char* PENDING_PATH       = "/pending.jsonl";
+constexpr const char* HISTORY_PATH       = "/history.jsonl";
+constexpr const char* HISTORY_TMP_PATH   = "/history.tmp";
+constexpr size_t      HISTORY_MAX_ENTRIES = 100;
 
 void writeEventLine(File& f, const feedme::ports::PendingEvent& e) {
     JsonDocument doc;
@@ -76,6 +78,41 @@ std::vector<feedme::ports::PendingEvent> LittleFsStorage::drainPending() {
 void LittleFsStorage::recordHistory(const feedme::ports::PendingEvent& e) {
     if (!ready_) return;
     appendEvent(HISTORY_PATH, e);
+
+    // Rotate when the file holds more than HISTORY_MAX_ENTRIES lines.
+    // Counts newlines via byte-by-byte scan — cheap on a 100-line file.
+    File f = LittleFS.open(HISTORY_PATH, FILE_READ);
+    if (!f) return;
+    size_t lines = 0;
+    while (f.available()) { if (f.read() == '\n') ++lines; }
+    f.close();
+    if (lines <= HISTORY_MAX_ENTRIES) return;
+
+    // Rotate: read every line, keep only the most recent
+    // HISTORY_MAX_ENTRIES, write to a tmp file, swap.
+    f = LittleFS.open(HISTORY_PATH, FILE_READ);
+    if (!f) return;
+    std::vector<String> kept;
+    kept.reserve(HISTORY_MAX_ENTRIES);
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        if (line.length() == 0) continue;
+        kept.push_back(line);
+    }
+    f.close();
+    const size_t drop = kept.size() > HISTORY_MAX_ENTRIES
+        ? kept.size() - HISTORY_MAX_ENTRIES : 0;
+
+    File out = LittleFS.open(HISTORY_TMP_PATH, FILE_WRITE);
+    if (!out) return;
+    for (size_t i = drop; i < kept.size(); ++i) {
+        out.print(kept[i]);
+        out.write('\n');
+    }
+    out.close();
+
+    LittleFS.remove(HISTORY_PATH);
+    LittleFS.rename(HISTORY_TMP_PATH, HISTORY_PATH);
 }
 
 std::vector<feedme::ports::PendingEvent> LittleFsStorage::loadRecentHistory(size_t n) {
