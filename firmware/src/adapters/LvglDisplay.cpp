@@ -52,6 +52,12 @@ void LvglDisplay::begin() {
 
     tft.init();
     tft.setRotation(0);
+    // The GC9A01 panel on the CrowPanel ships with its display-inversion
+    // bit the opposite of TFT_eSPI's default; without this toggle dark
+    // pixels render bright and red/green swap. Symptom on the bench:
+    // the "FEED ME" hungry state shows up with a green ring instead of
+    // red, and the dark-blue face panel renders bright violet.
+    tft.invertDisplay(true);
     tft.fillScreen(TFT_BLACK);
 
     lv_init();
