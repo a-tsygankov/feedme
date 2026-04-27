@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS events (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  hid   TEXT NOT NULL,
+  ts    INTEGER NOT NULL,
+  type  TEXT NOT NULL,
+  by    TEXT NOT NULL,
+  note  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hid_ts ON events(hid, ts DESC);

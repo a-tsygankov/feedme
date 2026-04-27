@@ -1,0 +1,112 @@
+{
+  "folders": [
+    { "name": "feedme (root)", "path": "." },
+    { "name": "firmware (ESP32-S3)", "path": "firmware" },
+    { "name": "backend (Cloudflare)", "path": "backend" },
+    { "name": "mockup (Vite/React)", "path": "mockup" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.pio": true,
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.wrangler": true
+    },
+    "search.exclude": {
+      "**/.pio": true,
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.wrangler": true,
+      "**/package-lock.json": true
+    },
+    "files.associations": {
+      "*.ino": "cpp",
+      "lv_conf.h": "c",
+      "wokwi.toml": "toml",
+      "diagram.json": "jsonc"
+    },
+    "platformio-ide.useBuiltinPIOCore": true,
+    "platformio-ide.activateOnlyOnPlatformIOProject": true,
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.cStandard": "c11",
+    "typescript.tsdk": "mockup/node_modules/typescript/lib",
+    "eslint.workingDirectories": [
+      { "pattern": "mockup" },
+      { "pattern": "backend" }
+    ],
+    "[typescript]":      { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+    "[typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+    "[javascript]":      { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+    "[javascriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+    "[json]":            { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+    "[jsonc]":           { "editor.defaultFormatter": "esbenp.prettier-vscode" }
+  },
+  "extensions": {
+    "recommendations": [
+      "platformio.platformio-ide",
+      "ms-vscode.cpptools",
+      "wokwi.wokwi-vscode",
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "bradlc.vscode-tailwindcss",
+      "cloudflare.cloudflare-workers-bindings",
+      "tamasfe.even-better-toml"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "firmware: build (real hardware)",
+        "type": "shell",
+        "command": "platformio",
+        "args": ["run", "-e", "esp32-s3-lcd-1_28"],
+        "options": { "cwd": "${workspaceFolder:firmware (ESP32-S3)}" },
+        "problemMatcher": ["$gcc"],
+        "group": "build"
+      },
+      {
+        "label": "firmware: build (simulator)",
+        "type": "shell",
+        "command": "platformio",
+        "args": ["run", "-e", "simulator"],
+        "options": { "cwd": "${workspaceFolder:firmware (ESP32-S3)}" },
+        "problemMatcher": ["$gcc"],
+        "group": "build"
+      },
+      {
+        "label": "firmware: test (native)",
+        "type": "shell",
+        "command": "platformio",
+        "args": ["test", "-e", "native"],
+        "options": { "cwd": "${workspaceFolder:firmware (ESP32-S3)}" },
+        "problemMatcher": ["$gcc"],
+        "group": "test"
+      },
+      {
+        "label": "firmware: monitor",
+        "type": "shell",
+        "command": "platformio",
+        "args": ["device", "monitor", "-e", "esp32-s3-lcd-1_28"],
+        "options": { "cwd": "${workspaceFolder:firmware (ESP32-S3)}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "mockup: dev",
+        "type": "shell",
+        "command": "npm",
+        "args": ["run", "dev"],
+        "options": { "cwd": "${workspaceFolder:mockup (Vite/React)}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "backend: dev",
+        "type": "shell",
+        "command": "npm",
+        "args": ["run", "dev"],
+        "options": { "cwd": "${workspaceFolder:backend (Cloudflare)}" },
+        "problemMatcher": []
+      }
+    ]
+  }
+}

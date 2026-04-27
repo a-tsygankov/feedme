@@ -1,0 +1,9 @@
+name = "feedme"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Run `wrangler d1 create feedme` to provision, then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "feedme"
+database_id = "REPLACE_WITH_D1_ID"
