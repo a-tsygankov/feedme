@@ -44,14 +44,23 @@ uint32_t lastServiceTickMs = 0;
 }  // namespace
 
 void setup() {
+    pinMode(40, OUTPUT);
+    digitalWrite(40, HIGH);
+
     Serial.begin(115200);
-    delay(100);
+    const uint32_t serialDeadline = millis() + 3000;
+    while (!Serial && millis() < serialDeadline) {
+        delay(10);
+    }
     Serial.println("[feedme] boot");
 
     display.begin();
+    Serial.println("[feedme] display ready");
+
     network.begin();
     storage.begin();
     taps.begin();
+    Serial.println("[feedme] setup complete");
 
 #if defined(SIMULATOR)
     // Pretend the cat was fed an hour ago at boot, then never again, so we

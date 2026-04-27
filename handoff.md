@@ -15,14 +15,20 @@ A fridge-mounted IoT device using the **Waveshare ESP32-S3-LCD-1.28** (round 1.2
 ### Board
 **Waveshare ESP32-S3-LCD-1.28** (bare) or **ESP32-S3-LCD-1.28-B** (with CNC metal case — recommended)
 - Amazon: search `waveshare ESP32-S3-LCD-1.28-B`
-- ESP32-S3R2, 16MB Flash, 2MB PSRAM, Wi-Fi + BLE 5
+- ESP32-S3 chip rev v0.2, **16 MB QIO flash** (GD25Q128), **8 MB OPI PSRAM** (AP Memory APS6408, "AP_3v3" in esptool output)
+- Wi-Fi + BLE 5, USB-Serial-JTAG on-chip
 
-> The "R2" suffix means **2 MB QSPI PSRAM in-package** — not OPI. The
-> PlatformIO `memory_type` for both real-board and simulator envs is
-> therefore `qio_qspi` (selects `bootloader_qio_80m.elf`). If you ever
-> see the second-stage bootloader silently reset on real hardware, the
-> first thing to verify is that this hasn't been flipped back to
-> `qio_opi`.
+> ⚠️ Earlier handoff drafts said "ESP32-S3R2, 2 MB PSRAM" — that turned
+> out to be wrong. esptool's `chip_id` reports `Embedded PSRAM 8MB
+> (AP_3v3)` and the bootloader's QSPI probe fails (`PSRAM ID read
+> error: 0x00ffffff, … wrong PSRAM line mode`). The chip actually has
+> **OPI** PSRAM, so the PlatformIO `memory_type` for the real-board env
+> must be `qio_opi` (selects `bootloader_opi_80m.elf`, drives PSRAM in
+> octal mode). The simulator env overrides this to `qio_qspi` because
+> Wokwi's emulator can't service OPI flash bus mode.
+>
+> Symptom of a wrong setting: `bootloader_reset()` loop with `Saved PC`
+> pointing into bootloader IRAM, no `[feedme] boot` line ever printed.
 
 ### Key Pin Assignments (memorize these)
 | Function | GPIO |
