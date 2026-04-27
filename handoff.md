@@ -13,22 +13,49 @@ A fridge-mounted IoT device using the **Waveshare ESP32-S3-LCD-1.28** (round 1.2
 ## Hardware
 
 ### Board
-**Waveshare ESP32-S3-LCD-1.28** (bare) or **ESP32-S3-LCD-1.28-B** (with CNC metal case — recommended)
-- Amazon: search `waveshare ESP32-S3-LCD-1.28-B`
-- ESP32-S3R2, 16MB Flash, 2MB PSRAM, Wi-Fi + BLE 5
+**[CrowPanel 1.28-inch HMI ESP32 Rotary Display](https://www.elecrow.com/crowpanel-1-28inch-hmi-esp32-rotary-display-240-240-ips-round-touch-knob-screen.html)** (Elecrow). Sold on Amazon under various reseller brand names ("IoTeikXgo", etc.). Form factor is a **smart-knob device**: round 1.28″ IPS LCD, knurled rotary encoder ring, capacitive touch, and a 5-LED WS2812 RGB ring under the bezel.
+- Wiki: <https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display.html>
+- ESP32-S3 chip rev v0.2 (QFN56), **16 MB QIO flash** (GD25Q128), **8 MB OPI PSRAM** (AP Memory APS6408, "AP_3v3" per esptool)
+- Wi-Fi + BLE 5, USB-Serial-JTAG on-chip
+- Display driver **GC9A01**, touch IC **CST816D**, no IMU on this variant
+- 5V/1A USB-C input, 3.3V chip rail
 
-### Key Pin Assignments (memorize these)
-| Function | GPIO |
-|----------|------|
-| LCD MOSI | 11 |
-| LCD CLK  | 10 |
-| LCD CS   | 9  |
-| LCD DC   | 8  |
-| LCD RST  | 12 |
-| Backlight (BL) | **40** ← not 2 |
-| IMU SDA  | 6  |
-| IMU SCL  | 7  |
-| Battery ADC | 1 |
+> ⚠️ Earlier handoff drafts misidentified this as the
+> Waveshare ESP32-S3-LCD-1.28 / Spotpear ESP32 Display 1.28. Those are
+> different boards with different pin maps. The CrowPanel additionally
+> gates the LCD's 3.3 V rail through GPIO 1 — the LCD is dead until that
+> pin is driven HIGH. Several hours of dark-screen debugging traces back
+> to this single fact.
+>
+> The chip variant fact (8 MB OPI PSRAM, AP_3v3) is unchanged — that
+> drove the platformio.ini `memory_type = qio_opi` decision and remains
+> correct. The simulator env overrides to `qio_qspi` because Wokwi's
+> emulator can't service OPI flash bus mode.
+
+### Key Pin Assignments (verified — CrowPanel 1.28 HMI)
+| Function | GPIO | Notes |
+|----------|------|-------|
+| **LCD 3V3 enable** | **1** | Drive HIGH first thing in setup() — without this the LCD has no power and nothing else matters. |
+| **LED-ring 3V3 enable** | **2** | Drive HIGH if you intend to use the LED ring. |
+| LCD MOSI | 11 | |
+| LCD MISO | -1 | GC9A01 is write-only; not connected. |
+| LCD CLK  | 10 | |
+| LCD CS   | 9  | |
+| LCD DC   | **3** | NOT 8 — that was wrong on every earlier draft. |
+| LCD RST  | 14 | |
+| LCD Backlight (BL) | **46** | active-HIGH PWM. |
+| Touch SDA | 6 | I²C bus 0. |
+| Touch SCL | 7 | |
+| Touch INT | 5 | CST816D interrupt. |
+| Touch RST | 13 | |
+| Rotary encoder A | 45 | |
+| Rotary encoder B | 42 | |
+| Rotary encoder switch (push) | 41 | |
+| RGB LED ring data | 48 | WS2812, 5 LEDs. |
+| Power-indicator LED | 40 | |
+| Test / spare GPIOs | 4, 12 | exposed on FPC header. |
+
+Authoritative source: the [Elecrow wiki](https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display.html) and [makerguides.com getting-started page](https://www.makerguides.com/getting-started-crowpanel-1-28inch-hmi-esp32-rotary-display/). Both list identical pin maps.
 
 Battery voltage formula: `3.3 / 4096.0 * 3.0 * analogRead(1)`
 
@@ -88,14 +115,28 @@ Three dots at bottom = today's meals. Filled = fed, empty = pending. 3 meals/day
 ```cpp
 #define GC9A01_DRIVER
 #define TFT_MOSI 11
+#define TFT_MISO -1            // GC9A01 is write-only on this board
 #define TFT_SCLK 10
 #define TFT_CS    9
-#define TFT_DC    8
-#define TFT_RST  12
-#define TFT_BL   40
+#define TFT_DC    3
+#define TFT_RST  14
+#define TFT_BL   46
+#define TFT_BACKLIGHT_ON HIGH
 #define USE_HSPI_PORT          // ← MANDATORY, crashes without it on ESP32-S3
 #define SPI_FREQUENCY 80000000
 ```
+
+Plus, **outside of TFT_eSPI**, you must drive GPIO 1 HIGH before
+`tft.init()` to power the LCD itself:
+```cpp
+pinMode(1, OUTPUT);
+digitalWrite(1, HIGH);   // LCD 3V3 enable — required, not optional
+```
+
+(In our `firmware/platformio.ini` these are passed as `-D` flags rather than
+edited into `User_Setup.h`. `TFT_MISO=13` is needed even though the GC9A01
+is write-only — without it the `spiAttachMISO()` call inside the Arduino-
+ESP32 SPI HAL prints `HSPI Does not have default pins on ESP32S3!` errors.)
 
 ### I2C (IMU)
 ```cpp

@@ -11,15 +11,18 @@ struct Palette { uint32_t ring; const char* label; };
 
 Palette paletteFor(feedme::domain::Mood m) {
     using M = feedme::domain::Mood;
+    // Brighter / more saturated than the React mockup palette so the
+    // 9-px ring stays legible against the dark navy background on
+    // the round panel. Matched in pairs across mood transitions.
     switch (m) {
-        case M::Happy:   return {0x4ade80, "happy"};
-        case M::Neutral: return {0xfacc15, "ok"};
-        case M::Warning: return {0xfb923c, "soon"};
-        case M::Hungry:  return {0xf87171, "FEED ME"};
-        case M::Fed:     return {0x4ade80, "fed!"};
-        case M::Sleepy:  return {0x818cf8, "zzz"};
+        case M::Happy:   return {0x22ff66, "happy"};
+        case M::Neutral: return {0xffea00, "ok"};
+        case M::Warning: return {0xff9100, "soon"};
+        case M::Hungry:  return {0xff2a2a, "FEED ME"};
+        case M::Fed:     return {0x22ff66, "fed!"};
+        case M::Sleepy:  return {0x6e7bff, "zzz"};
     }
-    return {0x4ade80, ""};
+    return {0x22ff66, ""};
 }
 
 // ── LVGL display flush wired to TFT_eSPI ──────────────────────────────────
@@ -36,6 +39,9 @@ void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
     const uint32_t h = area->y2 - area->y1 + 1;
     tft.startWrite();
     tft.setAddrWindow(area->x1, area->y1, w, h);
+    // LV_COLOR_16_SWAP=0 means our buffer holds standard RGB565 in
+    // CPU-native (little-endian) byte order. The GC9A01 wants
+    // big-endian RGB565 on the wire, so let TFT_eSPI do the byte swap.
     tft.pushColors(reinterpret_cast<uint16_t*>(&color_p->full), w * h, true);
     tft.endWrite();
     lv_disp_flush_ready(drv);
@@ -46,11 +52,15 @@ void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
 }  // namespace
 
 void LvglDisplay::begin() {
-    pinMode(40, OUTPUT);
-    digitalWrite(40, HIGH);
+    // LCD power rail is enabled by main.cpp before Serial.begin().
+    // Backlight (GPIO 46) is driven by TFT_eSPI itself when TFT_BL is
+    // defined and TFT_BACKLIGHT_ON=HIGH.
 
     tft.init();
     tft.setRotation(0);
+    // R↔B channel swap is performed in flushCb (the panel reads BGR
+    // even after MADCTL overrides), so no need to fight TFT_eSPI's
+    // GC9A01 init sequence here.
     tft.fillScreen(TFT_BLACK);
 
     lv_init();
@@ -72,36 +82,45 @@ void LvglDisplay::buildScene() {
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0f0f14), 0);
 
     arc_ = lv_arc_create(scr);
-    lv_obj_set_size(arc_, 220, 220);
+    lv_obj_set_size(arc_, 230, 230);
     lv_arc_set_rotation(arc_, 270);
     lv_arc_set_bg_angles(arc_, 0, 360);
     lv_arc_set_range(arc_, 0, 100);
     lv_obj_remove_style(arc_, nullptr, LV_PART_KNOB);
     lv_obj_clear_flag(arc_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(arc_, 9, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc_, 9, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc_, lv_color_hex(0x222), LV_PART_MAIN);
+    // Wider ring (14 px) with brighter unfilled-track grey for visible
+    // contrast against the dark background.
+    lv_obj_set_style_arc_width(arc_, 14, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc_, 14, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc_, lv_color_hex(0x333344), LV_PART_MAIN);
     lv_obj_center(arc_);
 
+    // Inner background panel (still a dark circle — gives the cat a backdrop
+    // distinct from the surrounding screen and matches the mockup's surface).
     face_ = lv_obj_create(scr);
-    lv_obj_set_size(face_, 180, 180);
+    lv_obj_set_size(face_, 200, 200);
     lv_obj_set_style_radius(face_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(face_, 0, 0);
     lv_obj_set_style_bg_color(face_, lv_color_hex(0x1a1a24), 0);
-    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_pad_all(face_, 0, 0);
+    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_center(face_);
+
+    // Simon's Cat-style face — primitive widgets, mood-driven.
+    cat_.begin(face_);
+    cat_.align(LV_ALIGN_CENTER, 0, -25);
 
     moodLbl_ = lv_label_create(face_);
     lv_obj_set_style_text_color(moodLbl_, lv_color_white(), 0);
-    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_18, 0);
     lv_label_set_text(moodLbl_, "...");
-    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, 38);
 
     timeLbl_ = lv_label_create(face_);
     lv_obj_set_style_text_color(timeLbl_, lv_color_hex(0x888), 0);
     lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(timeLbl_, "");
-    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 18);
+    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 60);
 
     for (int i = 0; i < 3; ++i) {
         dots_[i] = lv_obj_create(scr);
@@ -128,6 +147,10 @@ void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
 
     lv_arc_set_value(arc_, static_cast<int>(frame.ringProgress * 100));
     lv_obj_set_style_arc_color(arc_, lv_color_hex(p.ring), LV_PART_INDICATOR);
+
+    if (frame.mood != lastFrame_.mood || firstRender_) {
+        cat_.setMood(frame.mood);
+    }
 
     lv_label_set_text(moodLbl_, p.label);
     lv_obj_set_style_text_color(moodLbl_, lv_color_hex(p.ring), 0);

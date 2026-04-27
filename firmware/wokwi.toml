@@ -1,4 +1,7 @@
 [wokwi]
 version = 1
-firmware = '.pio/build/simulator/firmware.bin'
+# Merged image (bootloader + partition table + app) flashed at offset 0.
+# Without this, Wokwi flashes the bare app at 0x0 and the chip RTC_SW_SYS_RST
+# loops forever — see firmware/scripts/merge_simulator_bin.py.
+firmware = '.pio/build/simulator/feedme-merged.bin'
 elf      = '.pio/build/simulator/firmware.elf'
