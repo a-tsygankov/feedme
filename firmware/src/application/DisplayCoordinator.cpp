@@ -14,6 +14,14 @@ DisplayCoordinator::DisplayCoordinator(feedme::ports::IDisplay& display,
       clock_(clock),
       hungryThresholdSec_(hungryThresholdSec) {}
 
+int64_t DisplayCoordinator::adjustHungryThreshold(int64_t deltaSec) {
+    int64_t v = hungryThresholdSec_ + deltaSec;
+    if (v < MIN_THRESHOLD_SEC) v = MIN_THRESHOLD_SEC;
+    if (v > MAX_THRESHOLD_SEC) v = MAX_THRESHOLD_SEC;
+    hungryThresholdSec_ = v;
+    return v;
+}
+
 void DisplayCoordinator::tick() {
     const auto& s = feeding_.state();
     const int64_t now = clock_.nowSec();

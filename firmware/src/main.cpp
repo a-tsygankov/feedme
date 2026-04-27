@@ -4,20 +4,27 @@
 // time so the four mood states cycle through in about a minute of wall clock.
 
 #include <Arduino.h>
+#include <array>
 
 #include "adapters/ArduinoClock.h"
 #include "adapters/LvglDisplay.h"
 #include "adapters/NoopNetwork.h"
-#include "adapters/NoopStorage.h"
 #include "adapters/SimulatedClock.h"
 #include "application/DisplayCoordinator.h"
 #include "application/FeedingService.h"
+
+#if defined(SIMULATOR)
+#  include "adapters/NoopStorage.h"
+#else
+#  include "adapters/LittleFsStorage.h"
+#endif
 
 #if defined(SIMULATOR)
 #  include "adapters/StubTapSensor.h"
 #else
 #  include "adapters/Cst816TapSensor.h"
 #  include "adapters/EncoderButtonSensor.h"
+#  include "adapters/LedRing.h"
 #endif
 
 namespace {
@@ -38,16 +45,26 @@ feedme::ports::IClock& clock = realClock;
 
 feedme::adapters::LvglDisplay display;
 feedme::adapters::NoopNetwork network;
-feedme::adapters::NoopStorage storage;
+#if defined(SIMULATOR)
+feedme::adapters::NoopStorage     storage;
+#else
+feedme::adapters::LittleFsStorage storage;
+#endif
 #if defined(SIMULATOR)
 feedme::adapters::StubTapSensor       taps;
 feedme::adapters::StubTapSensor       button;
 #else
 feedme::adapters::Cst816TapSensor     taps;     // capacitive screen
 feedme::adapters::EncoderButtonSensor button;   // physical knob press
+feedme::adapters::LedRing             leds;     // 5-LED WS2812 ring
 #endif
 
-constexpr int SNOOZE_DURATION_SEC = 30 * 60;  // long-press = 30 minutes
+constexpr uint32_t LED_FEED_COLOR    = 0x00FF40;  // green
+constexpr uint32_t LED_SNOOZE_COLOR  = 0x6644FF;  // purple
+constexpr uint32_t LED_HISTORY_COLOR = 0x00AAFF;  // cyan
+
+constexpr int SNOOZE_DURATION_SEC      = 30 * 60;  // long-press = 30 minutes
+constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
 feedme::application::FeedingService feeding(clock, network, storage);
 feedme::application::DisplayCoordinator displayCoord(
@@ -81,8 +98,12 @@ void setup() {
 
     network.begin();
     storage.begin();
+    feeding.loadHistoryFromStorage();
     taps.begin();
     button.begin();
+#if !defined(SIMULATOR)
+    leds.begin();
+#endif
 
     // All eight input events route through one handler. Quick gestures
     // log a feed, deliberate ones snooze, the rest are placeholders
@@ -103,24 +124,53 @@ void setup() {
             case E::Press:
                 Serial.println("[input] -> log feed");
                 feeding.logFeeding("user");
+#if !defined(SIMULATOR)
+                leds.pulse(LED_FEED_COLOR);
+#endif
                 break;
             case E::DoubleTap:
-            case E::DoublePress:
-                Serial.println("[input] -> history (TODO)");
+            case E::DoublePress: {
+                Serial.println("[input] -> history");
+#if !defined(SIMULATOR)
+                leds.pulse(LED_HISTORY_COLOR, 300);
+#endif
+                std::array<feedme::application::FeedingService::HistoryEntry,
+                           feedme::application::FeedingService::HISTORY_CAPACITY> recent;
+                const size_t n = feeding.copyRecentEvents(recent);
+                if (n == 0) {
+                    Serial.println("  (no events yet)");
+                } else {
+                    for (size_t i = 0; i < n; ++i) {
+                        const auto& ev = recent[i];
+                        Serial.printf("  [%zu] ts=%lld type=%s by=%s\n",
+                                      i, static_cast<long long>(ev.ts),
+                                      ev.type.c_str(), ev.by.c_str());
+                    }
+                }
                 break;
+            }
             case E::LongTouch:
                 Serial.println("[input] -> menu (TODO)");
                 break;
             case E::LongPress:
                 Serial.println("[input] -> snooze 30m");
                 feeding.snooze("user", SNOOZE_DURATION_SEC);
+#if !defined(SIMULATOR)
+                leds.pulse(LED_SNOOZE_COLOR);
+#endif
                 break;
-            case E::RotateCW:
-                Serial.println("[input] -> rotate CW (TODO)");
+            case E::RotateCW: {
+                const int64_t v = displayCoord.adjustHungryThreshold(+THRESHOLD_STEP_SEC);
+                Serial.printf("[input] -> threshold +30m (now %lldh %02lldm)\n",
+                              v / 3600, (v % 3600) / 60);
                 break;
-            case E::RotateCCW:
-                Serial.println("[input] -> rotate CCW (TODO)");
+            }
+            case E::RotateCCW: {
+                const int64_t v = displayCoord.adjustHungryThreshold(-THRESHOLD_STEP_SEC);
+                Serial.printf("[input] -> threshold -30m (now %lldh %02lldm)\n",
+                              v / 3600, (v % 3600) / 60);
                 break;
+            }
         }
     };
     taps.onEvent(handleInput);
@@ -149,6 +199,9 @@ void loop() {
 
     taps.poll();
     button.poll();
+#if !defined(SIMULATOR)
+    leds.tick();
+#endif
 
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
