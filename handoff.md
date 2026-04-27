@@ -17,12 +17,12 @@ A fridge-mounted IoT device using the **Waveshare ESP32-S3-LCD-1.28** (round 1.2
 - Amazon: search `waveshare ESP32-S3-LCD-1.28-B`
 - ESP32-S3R2, 16MB Flash, 2MB PSRAM, Wi-Fi + BLE 5
 
-> ⚠️ The "R2" suffix means **2 MB QSPI PSRAM in-package** — *not* OPI. So the
-> correct PlatformIO `memory_type` is `qio_qspi`, not `qio_opi`. The
-> simulator env explicitly overrides to `qio_qspi`; the `[common]` block
-> still sets `qio_opi` historically and that's flagged for review. If you
-> first flash to real hardware and the second-stage bootloader silently
-> resets, switch `[common]` to `qio_qspi` first.
+> The "R2" suffix means **2 MB QSPI PSRAM in-package** — not OPI. The
+> PlatformIO `memory_type` for both real-board and simulator envs is
+> therefore `qio_qspi` (selects `bootloader_qio_80m.elf`). If you ever
+> see the second-stage bootloader silently reset on real hardware, the
+> first thing to verify is that this hasn't been flipped back to
+> `qio_opi`.
 
 ### Key Pin Assignments (memorize these)
 | Function | GPIO |

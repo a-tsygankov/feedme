@@ -73,7 +73,7 @@ them, know what they're for:
 | File | Setting | Why |
 |---|---|---|
 | `firmware/diagram.json` | `"flashSize":"16","psramSize":"2","psramType":"quad"` | Wokwi silently ignores typo'd keys (we had `"flash"` and `"psramSize":"quad"` for a while) and falls back to 4 MB flash + 4 MB QSPI PSRAM. With our 16 MB partition table that means partition-table reads past 4 MB return garbage and the bootloader resets in a tight loop. |
-| `firmware/platformio.ini` `[env:simulator]` | `board_build.arduino.memory_type = qio_qspi` | Overrides the `qio_opi` from `[common]`. The OPI bootloader's first instructions switch flash to OPI mode, which Wokwi's emulator can't service — chip resets before any log line prints. The QIO bootloader keeps flash in QIO mode and matches Wokwi's emulation. |
+| `firmware/platformio.ini` `[common]` | `board_build.arduino.memory_type = qio_qspi` | The chip is ESP32-S3R2 (2 MB QSPI PSRAM in-package, QIO flash). The historical `qio_opi` setting selected `bootloader_opi_80m.elf`, which switches flash to OPI mode in its first instructions — fine if the chip has OPI flash, fatal otherwise. Wokwi's emulator can't service OPI mode and resets silently; the real R2 chip would face the same mismatch. |
 | `firmware/scripts/merge_simulator_bin.py` | `--flash_freq 40m` (image header) | Wokwi's emulated flash drives reliably at 40 MHz. The Arduino-Espressif precompiled bootloader.elf is 80 MHz-only, so we leave the bootloader's compiled-in clock alone and only patch the image header that the ROM reads. |
 
 Also: `[env:simulator]` strips `ARDUINO_USB_CDC_ON_BOOT` (inherited from
