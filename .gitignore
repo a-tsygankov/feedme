@@ -1,0 +1,21 @@
+# PlatformIO
+firmware/.pio/
+
+# Node
+**/node_modules/
+**/dist/
+
+# Wrangler
+**/.wrangler/
+**/.dev.vars
+
+# Vite
+**/.vite/
+
+# Claude Code runtime
+.claude/scheduled_tasks.lock
+.claude/sessions/
+
+# OS
+Thumbs.db
+.DS_Store
