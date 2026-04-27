@@ -46,8 +46,9 @@ void flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
 }  // namespace
 
 void LvglDisplay::begin() {
-    pinMode(40, OUTPUT);
-    digitalWrite(40, HIGH);
+    // LCD power rail is enabled by main.cpp before Serial.begin().
+    // Backlight (GPIO 46) is driven by TFT_eSPI itself when TFT_BL is
+    // defined and TFT_BACKLIGHT_ON=HIGH.
 
     tft.init();
     tft.setRotation(0);

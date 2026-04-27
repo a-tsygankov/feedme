@@ -44,8 +44,16 @@ uint32_t lastServiceTickMs = 0;
 }  // namespace
 
 void setup() {
-    pinMode(40, OUTPUT);
-    digitalWrite(40, HIGH);
+    // ── Power up the LCD rail BEFORE Serial or anything else. ────────────
+    // The CrowPanel 1.28" Rotary Display gates the LCD's 3V3 supply
+    // through a load switch controlled by GPIO 1; without driving it
+    // HIGH the LCD chip is completely unpowered and no SPI command,
+    // backlight pulse, or reset will ever produce a visible result.
+    // GPIO 2 is a similar gate for the LED-ring 3V3 rail.
+    pinMode(1, OUTPUT);
+    digitalWrite(1, HIGH);
+    pinMode(2, OUTPUT);
+    digitalWrite(2, HIGH);
 
     Serial.begin(115200);
     const uint32_t serialDeadline = millis() + 3000;
@@ -71,6 +79,15 @@ void setup() {
 
 void loop() {
     const uint32_t now = millis();
+
+    // Heartbeat for the first ~5 s so we can confirm loop() is ticking.
+    static uint32_t lastBeatMs = 0;
+    static uint32_t beatCount = 0;
+    if (beatCount < 5 && now - lastBeatMs >= 1000) {
+        lastBeatMs = now;
+        Serial.print("[feedme] loop beat ");
+        Serial.println(beatCount++);
+    }
 
     taps.poll();
 
