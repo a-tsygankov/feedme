@@ -1,9 +1,25 @@
-# feedme — Implementation Roadmap (post `dev-3`)
+# feedme — Implementation Roadmap
 
 > Companion to [handoff.md](../handoff.md) (design + hardware reference),
 > [docs/architecture.md](architecture.md) (component diagrams + tools), and
 > [docs/session-handoff.md](session-handoff.md) (engineering state log).
+> Detailed plan for the FeedMeKnob redesign in
+> [docs/feedmeknob-plan.md](feedmeknob-plan.md).
 > This file is the **forward-looking work plan**.
+
+## ⚠ Direction change (2026-04-28)
+
+A formal design handoff arrived (`FeedMe-handoff.zip`) that pivots
+the product UX from a single-screen mood tracker to a 12-screen
+interactive feeder. The new direction reuses all our hardware, build
+system, and adapter layer, but redesigns the LVGL scene system on
+top. Detailed sequencing in
+[feedmeknob-plan.md](feedmeknob-plan.md).
+
+This roadmap is **kept as-is below** for the parts that still apply
+(NTP, persistent prefs, backend sync, push, deep sleep) — the
+redesign reorders Phase 3 (UX polish) and replaces a chunk of it,
+but Phases 1, 2, 4, 5 are mostly orthogonal.
 
 ---
 
@@ -109,9 +125,13 @@ Replaces `NoopNetwork`. Implements `INetwork` against the existing [backend/src/
 
 ---
 
-## Phase 3 — UX polish
+## Phase 3 — UX redesign (per FeedMeKnob handoff)
 
-Each item independent; pick à la carte.
+**This phase is largely replaced** by the structured rebuild in
+[feedmeknob-plan.md](feedmeknob-plan.md): visual baseline + asset
+pipeline, screen manager + state machine, twelve individual screens,
+settings sub-editors. The sub-items below stay as backlog items that
+can fold into the redesign as they touch the same widgets:
 
 ### 3.1 Auto-dismiss history overlay · ~30 min
 - LvglDisplay tracks `historyShownAtMs_`; in `tick()`, if visible and `now - historyShownAtMs_ > 10 000`, hide.
@@ -177,19 +197,20 @@ If pursued:
 
 ---
 
-## Recommended next session: Phase 1.1 + 1.2
+## Current state of branches
 
-Smallest cohesive ship that makes the device honestly tell time and remember settings:
+- `main` ← `47f9bae` Enhance CrowPanel input handling with multi-sensor support (#2 squash)
+- `dev-4` ← Phase 1 NTP + persistent prefs, **PR #3 open and mergeable**
+- *(next)* `dev-5` — FeedMeKnob redesign, sequenced in [feedmeknob-plan.md](feedmeknob-plan.md)
 
-1. Stub a `WifiClient` adapter with hard-coded credentials via build flag (`-DWIFI_SSID=...` `-DWIFI_PASS=...`).
-2. Add SNTP sync after `WiFi.begin()`.
-3. New `Preferences`-backed `IPreferences` port with `getThreshold/setThreshold/getOwner/setOwner`.
-4. `DisplayCoordinator::adjustHungryThreshold` writes through to prefs.
-5. Boot reads prefs, seeds initial threshold + owner.
+## Recommended next session
 
-Ship to a new `dev-4` branch. Iterate on the bench (verify history shows correct wall-clock ages, threshold survives reboot).
+1. **Merge PR #3** (dev-4 → main, squash). Ships honest wall-clock time and persistent threshold.
+2. **Branch `dev-5` from updated `main`.**
+3. **Execute [feedmeknob-plan.md](feedmeknob-plan.md) Phase A** — visual baseline + asset pipeline. Smallest cohesive ship of the redesign: device boots into the new Aubergine Idle screen with a real cat PNG, but inputs still drive dev-4 logic.
+4. **Phase B onward** as that lands cleanly.
 
-After that, Phase 1.3 *or* 2.4 — pick captive portal (2.4) over knob entry (1.3) unless you specifically want the on-device flow.
+Phase 2 (backend sync) stays as a parallel track and folds into Phase E of the redesign — wire the `WifiNetwork` adapter once Schedule + Quiet Hours screens have something worth syncing.
 
 ---
 

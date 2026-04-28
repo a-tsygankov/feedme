@@ -1,7 +1,12 @@
 #pragma once
 
 #include "adapters/CatFace.h"
+#include "ports/IClock.h"
 #include "ports/IDisplay.h"
+#include "ports/ITapSensor.h"
+#include "views/IdleView.h"
+#include "views/MenuView.h"
+#include "views/ScreenManager.h"
 
 #include <lvgl.h>
 #include <TFT_eSPI.h>
@@ -29,18 +34,33 @@ public:
     void render(const feedme::ports::DisplayFrame& frame) override;
     void tick() override;
 
-    // History-overlay control.
+    // Multi-screen state machine. Pass an input event in to the active
+    // view; transitions happen automatically. Returns the new view's
+    // name (or null if unchanged) so the dispatcher can side-effect.
+    const char* handleInput(feedme::ports::TapEvent ev);
+    void        transitionTo(const char* viewName);
+    const char* currentView() const;
+
+    // History-overlay control (still owned here for now — pulls double-
+    // duty as a transient panel over whichever view is active).
     void setHistory(const HistoryItem* items, int count);
     void setHistoryVisible(bool visible);
     bool historyVisible() const { return historyVisible_; }
 
 private:
-    // LVGL widgets owned by us.
-    lv_obj_t* arc_     = nullptr;
-    lv_obj_t* face_    = nullptr;
-    lv_obj_t* moodLbl_ = nullptr;
-    lv_obj_t* timeLbl_ = nullptr;
-    lv_obj_t* dots_[3] = {nullptr, nullptr, nullptr};
+    // Multi-screen scene graph: ScreenManager owns the views, hides
+    // the inactive ones, routes render() / handleInput() to the
+    // current one. Each view is a static instance kept here so its
+    // memory is bound to the LvglDisplay's lifetime.
+    feedme::views::ScreenManager screens_;
+    feedme::views::IdleView      idleView_;
+    feedme::views::MenuView      menuView_;
+
+    // The legacy LVGL-primitive cat is kept compiled (per
+    // feedmeknob-plan.md open question 3 — answered "keep") but is no
+    // longer in the live scene; CatFace.{h,cpp} continue to build for
+    // the simulator and as a backup if PNG embedding ever becomes
+    // flash-tight.
     CatFace   cat_;
 
     // History overlay panel (hidden by default).
@@ -48,9 +68,6 @@ private:
     lv_obj_t* historyTitle_         = nullptr;
     lv_obj_t* historyLines_[HISTORY_MAX] = {nullptr};
     bool      historyVisible_       = false;
-
-    feedme::ports::DisplayFrame lastFrame_{};
-    bool firstRender_ = true;
 
     void buildScene();
     void buildHistoryOverlay();

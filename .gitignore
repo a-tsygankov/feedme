@@ -7,6 +7,11 @@ firmware/.pio/
 firmware/include/wifi_credentials.h
 firmware/include/local_secrets.h
 
+# Design handoff assets (PNGs + reference JSX). Kept locally for the
+# conversion pipeline but not committed — converted lv_img_dsc_t C
+# arrays in firmware/src/assets/ are the version-controlled artefact.
+firmware/design/
+
 # Node
 **/node_modules/
 **/dist/

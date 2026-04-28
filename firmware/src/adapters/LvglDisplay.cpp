@@ -1,29 +1,12 @@
 #include "adapters/LvglDisplay.h"
 
+#include "views/Theme.h"
+
 #include <Arduino.h>
 
 namespace feedme::adapters {
 
 namespace {
-
-// Mood → palette. Tuned to match the React mockup.
-struct Palette { uint32_t ring; const char* label; };
-
-Palette paletteFor(feedme::domain::Mood m) {
-    using M = feedme::domain::Mood;
-    // Brighter / more saturated than the React mockup palette so the
-    // 9-px ring stays legible against the dark navy background on
-    // the round panel. Matched in pairs across mood transitions.
-    switch (m) {
-        case M::Happy:   return {0x22ff66, "happy"};
-        case M::Neutral: return {0xffea00, "ok"};
-        case M::Warning: return {0xff9100, "soon"};
-        case M::Hungry:  return {0xff2a2a, "FEED ME"};
-        case M::Fed:     return {0x22ff66, "fed!"};
-        case M::Sleepy:  return {0x6e7bff, "zzz"};
-    }
-    return {0x22ff66, ""};
-}
 
 // ── LVGL display flush wired to TFT_eSPI ──────────────────────────────────
 constexpr int SCREEN_W = 240;
@@ -78,61 +61,36 @@ void LvglDisplay::begin() {
 }
 
 void LvglDisplay::buildScene() {
+    using namespace feedme::views;
     lv_obj_t* scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0f0f14), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(kTheme.bg), 0);
 
-    arc_ = lv_arc_create(scr);
-    lv_obj_set_size(arc_, 230, 230);
-    lv_arc_set_rotation(arc_, 270);
-    lv_arc_set_bg_angles(arc_, 0, 360);
-    lv_arc_set_range(arc_, 0, 100);
-    lv_obj_remove_style(arc_, nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(arc_, LV_OBJ_FLAG_CLICKABLE);
-    // Wider ring (14 px) with brighter unfilled-track grey for visible
-    // contrast against the dark background.
-    lv_obj_set_style_arc_width(arc_, 14, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc_, 14, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc_, lv_color_hex(0x333344), LV_PART_MAIN);
-    lv_obj_center(arc_);
+    // ScreenManager owns the per-view widget hierarchies.
+    screens_.begin(scr);
+    screens_.registerView(&idleView_);
+    screens_.registerView(&menuView_);
+    screens_.transition("idle");
 
-    // Inner background panel (still a dark circle — gives the cat a backdrop
-    // distinct from the surrounding screen and matches the mockup's surface).
-    face_ = lv_obj_create(scr);
-    lv_obj_set_size(face_, 200, 200);
-    lv_obj_set_style_radius(face_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(face_, 0, 0);
-    lv_obj_set_style_bg_color(face_, lv_color_hex(0x1a1a24), 0);
-    lv_obj_set_style_pad_all(face_, 0, 0);
-    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_center(face_);
-
-    // Simon's Cat-style face — primitive widgets, mood-driven.
-    cat_.begin(face_);
-    cat_.align(LV_ALIGN_CENTER, 0, -25);
-
-    moodLbl_ = lv_label_create(face_);
-    lv_obj_set_style_text_color(moodLbl_, lv_color_white(), 0);
-    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_18, 0);
-    lv_label_set_text(moodLbl_, "...");
-    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, 38);
-
-    timeLbl_ = lv_label_create(face_);
-    lv_obj_set_style_text_color(timeLbl_, lv_color_hex(0x888), 0);
-    lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(timeLbl_, "");
-    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 60);
-
-    for (int i = 0; i < 3; ++i) {
-        dots_[i] = lv_obj_create(scr);
-        lv_obj_set_size(dots_[i], 10, 10);
-        lv_obj_set_style_radius(dots_[i], LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_border_width(dots_[i], 0, 0);
-        lv_obj_set_style_bg_color(dots_[i], lv_color_hex(0x444), 0);
-        lv_obj_clear_flag(dots_[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(dots_[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 16, -16);
-    }
+    // Compile the legacy primitive cat without putting it on the screen.
+    // (Open question 3 in docs/feedmeknob-plan.md, answered "keep".)
+    (void)cat_;
 
     buildHistoryOverlay();
+}
+
+const char* LvglDisplay::handleInput(feedme::ports::TapEvent ev) {
+    const char* next = screens_.handleInput(ev);
+    if (next) screens_.transition(next);
+    return next;
+}
+
+void LvglDisplay::transitionTo(const char* viewName) {
+    screens_.transition(viewName);
+}
+
+const char* LvglDisplay::currentView() const {
+    auto* v = screens_.current();
+    return v ? v->name() : nullptr;
 }
 
 void LvglDisplay::buildHistoryOverlay() {
@@ -186,46 +144,7 @@ void LvglDisplay::setHistoryVisible(bool visible) {
 }
 
 void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
-    const bool changed =
-        firstRender_ ||
-        frame.mood != lastFrame_.mood ||
-        frame.todayCount != lastFrame_.todayCount ||
-        frame.minutesSinceFeed != lastFrame_.minutesSinceFeed ||
-        static_cast<int>(frame.ringProgress * 100) !=
-            static_cast<int>(lastFrame_.ringProgress * 100);
-    if (!changed) return;
-
-    const auto p = paletteFor(frame.mood);
-
-    lv_arc_set_value(arc_, static_cast<int>(frame.ringProgress * 100));
-    lv_obj_set_style_arc_color(arc_, lv_color_hex(p.ring), LV_PART_INDICATOR);
-
-    if (frame.mood != lastFrame_.mood || firstRender_) {
-        cat_.setMood(frame.mood);
-    }
-
-    lv_label_set_text(moodLbl_, p.label);
-    lv_obj_set_style_text_color(moodLbl_, lv_color_hex(p.ring), 0);
-
-    char buf[24];
-    if (frame.minutesSinceFeed < 0) {
-        snprintf(buf, sizeof(buf), "no record");
-    } else if (frame.minutesSinceFeed < 60) {
-        snprintf(buf, sizeof(buf), "%dm ago", frame.minutesSinceFeed);
-    } else {
-        snprintf(buf, sizeof(buf), "%dh %dm ago",
-                 frame.minutesSinceFeed / 60, frame.minutesSinceFeed % 60);
-    }
-    lv_label_set_text(timeLbl_, buf);
-
-    for (int i = 0; i < 3; ++i) {
-        const bool filled = i < frame.todayCount;
-        lv_obj_set_style_bg_color(dots_[i],
-            filled ? lv_color_hex(p.ring) : lv_color_hex(0x444), 0);
-    }
-
-    lastFrame_ = frame;
-    firstRender_ = false;
+    screens_.render(frame);
 }
 
 void LvglDisplay::tick() {
