@@ -1,28 +1,39 @@
 #include "adapters/LvglDisplay.h"
 
+#include "assets/cats/cats.h"
+#include "views/Theme.h"
+
 #include <Arduino.h>
 
 namespace feedme::adapters {
 
 namespace {
 
-// Mood → palette. Tuned to match the React mockup.
-struct Palette { uint32_t ring; const char* label; };
-
-Palette paletteFor(feedme::domain::Mood m) {
+// Mood → cat slug, locked per docs/feedmeknob-plan.md (the design
+// handoff calls this MOOD_TO_CAT). Two sizes — 130 px hero for Idle
+// and 88 px for screens that pair the cat with other widgets.
+const lv_img_dsc_t* catForMood(feedme::domain::Mood m, bool small) {
     using M = feedme::domain::Mood;
-    // Brighter / more saturated than the React mockup palette so the
-    // 9-px ring stays legible against the dark navy background on
-    // the round panel. Matched in pairs across mood transitions.
-    switch (m) {
-        case M::Happy:   return {0x22ff66, "happy"};
-        case M::Neutral: return {0xffea00, "ok"};
-        case M::Warning: return {0xff9100, "soon"};
-        case M::Hungry:  return {0xff2a2a, "FEED ME"};
-        case M::Fed:     return {0x22ff66, "fed!"};
-        case M::Sleepy:  return {0x6e7bff, "zzz"};
+    if (small) {
+        switch (m) {
+            case M::Happy:   return &cat_c2_88;
+            case M::Neutral: return &cat_b1_88;
+            case M::Warning:
+            case M::Hungry:  return &cat_b2_88;
+            case M::Sleepy:  return &cat_b3_88;
+            case M::Fed:     return &cat_c4_88;
+        }
+        return &cat_b1_88;
     }
-    return {0x22ff66, ""};
+    switch (m) {
+        case M::Happy:   return &cat_c2_130;
+        case M::Neutral: return &cat_b1_130;
+        case M::Warning:
+        case M::Hungry:  return &cat_b2_130;
+        case M::Sleepy:  return &cat_b3_130;
+        case M::Fed:     return &cat_c4_130;
+    }
+    return &cat_b1_130;
 }
 
 // ── LVGL display flush wired to TFT_eSPI ──────────────────────────────────
@@ -78,59 +89,42 @@ void LvglDisplay::begin() {
 }
 
 void LvglDisplay::buildScene() {
+    using namespace feedme::views;
     lv_obj_t* scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0f0f14), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(kTheme.bg), 0);
 
-    arc_ = lv_arc_create(scr);
-    lv_obj_set_size(arc_, 230, 230);
-    lv_arc_set_rotation(arc_, 270);
-    lv_arc_set_bg_angles(arc_, 0, 360);
-    lv_arc_set_range(arc_, 0, 100);
-    lv_obj_remove_style(arc_, nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(arc_, LV_OBJ_FLAG_CLICKABLE);
-    // Wider ring (14 px) with brighter unfilled-track grey for visible
-    // contrast against the dark background.
-    lv_obj_set_style_arc_width(arc_, 14, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(arc_, 14, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc_, lv_color_hex(0x333344), LV_PART_MAIN);
-    lv_obj_center(arc_);
+    // Top: time (Georgia 38 in the design — we use Montserrat 24 since
+    // LVGL doesn't ship Georgia. Closest visual match available).
+    timeLbl_ = lv_label_create(scr);
+    lv_obj_set_style_text_color(timeLbl_, lv_color_hex(kTheme.ink), 0);
+    lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_24, 0);
+    lv_label_set_text(timeLbl_, "--:--");
+    lv_obj_align(timeLbl_, LV_ALIGN_TOP_MID, 0, 32);
 
-    // Inner background panel (still a dark circle — gives the cat a backdrop
-    // distinct from the surrounding screen and matches the mockup's surface).
-    face_ = lv_obj_create(scr);
-    lv_obj_set_size(face_, 200, 200);
-    lv_obj_set_style_radius(face_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(face_, 0, 0);
-    lv_obj_set_style_bg_color(face_, lv_color_hex(0x1a1a24), 0);
-    lv_obj_set_style_pad_all(face_, 0, 0);
-    lv_obj_clear_flag(face_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_center(face_);
+    // Kicker line under time (uppercase, dim, letter-spaced).
+    kickerLbl_ = lv_label_create(scr);
+    lv_obj_set_style_text_color(kickerLbl_, lv_color_hex(kTheme.dim), 0);
+    lv_obj_set_style_text_font(kickerLbl_, &lv_font_montserrat_14, 0);
+    lv_label_set_text(kickerLbl_, "");
+    lv_obj_align(kickerLbl_, LV_ALIGN_TOP_MID, 0, 70);
 
-    // Simon's Cat-style face — primitive widgets, mood-driven.
-    cat_.begin(face_);
-    cat_.align(LV_ALIGN_CENTER, 0, -25);
+    // Cat hero in the centre of the disc, ~130 px. Image source is
+    // updated per-mood in render().
+    catImg_ = lv_img_create(scr);
+    lv_img_set_src(catImg_, catForMood(feedme::domain::Mood::Neutral, false));
+    lv_obj_align(catImg_, LV_ALIGN_CENTER, 0, 18);
 
-    moodLbl_ = lv_label_create(face_);
-    lv_obj_set_style_text_color(moodLbl_, lv_color_white(), 0);
-    lv_obj_set_style_text_font(moodLbl_, &lv_font_montserrat_18, 0);
-    lv_label_set_text(moodLbl_, "...");
-    lv_obj_align(moodLbl_, LV_ALIGN_CENTER, 0, 38);
+    // Footer line at bottom (next-meal hint — static for v0).
+    footerLbl_ = lv_label_create(scr);
+    lv_obj_set_style_text_color(footerLbl_, lv_color_hex(kTheme.dim), 0);
+    lv_obj_set_style_text_font(footerLbl_, &lv_font_montserrat_14, 0);
+    lv_label_set_text(footerLbl_, "next  13:00  lunch");
+    lv_obj_align(footerLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 
-    timeLbl_ = lv_label_create(face_);
-    lv_obj_set_style_text_color(timeLbl_, lv_color_hex(0x888), 0);
-    lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(timeLbl_, "");
-    lv_obj_align(timeLbl_, LV_ALIGN_CENTER, 0, 60);
-
-    for (int i = 0; i < 3; ++i) {
-        dots_[i] = lv_obj_create(scr);
-        lv_obj_set_size(dots_[i], 10, 10);
-        lv_obj_set_style_radius(dots_[i], LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_border_width(dots_[i], 0, 0);
-        lv_obj_set_style_bg_color(dots_[i], lv_color_hex(0x444), 0);
-        lv_obj_clear_flag(dots_[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(dots_[i], LV_ALIGN_BOTTOM_MID, (i - 1) * 16, -16);
-    }
+    // Compile the legacy primitive cat without putting it on the screen.
+    // (The decision to keep it as a fallback lives in
+    // docs/feedmeknob-plan.md — open question 3, answered "keep".)
+    (void)cat_;
 
     buildHistoryOverlay();
 }
@@ -189,40 +183,36 @@ void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
     const bool changed =
         firstRender_ ||
         frame.mood != lastFrame_.mood ||
-        frame.todayCount != lastFrame_.todayCount ||
         frame.minutesSinceFeed != lastFrame_.minutesSinceFeed ||
-        static_cast<int>(frame.ringProgress * 100) !=
-            static_cast<int>(lastFrame_.ringProgress * 100);
+        frame.hour != lastFrame_.hour ||
+        frame.minute != lastFrame_.minute;
     if (!changed) return;
 
-    const auto p = paletteFor(frame.mood);
-
-    lv_arc_set_value(arc_, static_cast<int>(frame.ringProgress * 100));
-    lv_obj_set_style_arc_color(arc_, lv_color_hex(p.ring), LV_PART_INDICATOR);
-
-    if (frame.mood != lastFrame_.mood || firstRender_) {
-        cat_.setMood(frame.mood);
+    // Cat changes only when mood does (image swap is non-trivial).
+    if (firstRender_ || frame.mood != lastFrame_.mood) {
+        lv_img_set_src(catImg_, catForMood(frame.mood, /*small=*/false));
     }
 
-    lv_label_set_text(moodLbl_, p.label);
-    lv_obj_set_style_text_color(moodLbl_, lv_color_hex(p.ring), 0);
+    // Time top-line, "H:MM" (24h, no leading zero on hour to match the
+    // ScrIdle reference).
+    char timeBuf[8];
+    snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", frame.hour, frame.minute);
+    lv_label_set_text(timeLbl_, timeBuf);
 
-    char buf[24];
+    // Kicker line: minutes-since-feed for now (real "TUE · DAY 12"
+    // wording needs date arithmetic; defer to a later ticket).
+    char kickerBuf[24];
     if (frame.minutesSinceFeed < 0) {
-        snprintf(buf, sizeof(buf), "no record");
+        snprintf(kickerBuf, sizeof(kickerBuf), "no record");
     } else if (frame.minutesSinceFeed < 60) {
-        snprintf(buf, sizeof(buf), "%dm ago", frame.minutesSinceFeed);
+        snprintf(kickerBuf, sizeof(kickerBuf), "fed %dm ago",
+                 frame.minutesSinceFeed);
     } else {
-        snprintf(buf, sizeof(buf), "%dh %dm ago",
-                 frame.minutesSinceFeed / 60, frame.minutesSinceFeed % 60);
+        snprintf(kickerBuf, sizeof(kickerBuf), "fed %dh %02dm ago",
+                 frame.minutesSinceFeed / 60,
+                 frame.minutesSinceFeed % 60);
     }
-    lv_label_set_text(timeLbl_, buf);
-
-    for (int i = 0; i < 3; ++i) {
-        const bool filled = i < frame.todayCount;
-        lv_obj_set_style_bg_color(dots_[i],
-            filled ? lv_color_hex(p.ring) : lv_color_hex(0x444), 0);
-    }
+    lv_label_set_text(kickerLbl_, kickerBuf);
 
     lastFrame_ = frame;
     firstRender_ = false;

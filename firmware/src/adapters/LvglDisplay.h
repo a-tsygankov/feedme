@@ -1,6 +1,7 @@
 #pragma once
 
 #include "adapters/CatFace.h"
+#include "ports/IClock.h"
 #include "ports/IDisplay.h"
 
 #include <lvgl.h>
@@ -35,12 +36,15 @@ public:
     bool historyVisible() const { return historyVisible_; }
 
 private:
-    // LVGL widgets owned by us.
-    lv_obj_t* arc_     = nullptr;
-    lv_obj_t* face_    = nullptr;
-    lv_obj_t* moodLbl_ = nullptr;
-    lv_obj_t* timeLbl_ = nullptr;
-    lv_obj_t* dots_[3] = {nullptr, nullptr, nullptr};
+    // ── Idle screen widgets (FeedMeKnob layout) ──────────────────────
+    lv_obj_t* timeLbl_   = nullptr;  // "7:42"
+    lv_obj_t* kickerLbl_ = nullptr;  // "TUE · DAY 12"
+    lv_obj_t* catImg_    = nullptr;  // mood-mapped cat PNG
+    lv_obj_t* footerLbl_ = nullptr;  // "next · 13:00 lunch"
+    // The legacy primitive cat is kept compiled (per the keep-as-fallback
+    // decision) but no longer in the live scene; CatFace.{h,cpp} continue
+    // to build for the simulator and as a backup if PNG embedding ever
+    // becomes flash-tight.
     CatFace   cat_;
 
     // History overlay panel (hidden by default).

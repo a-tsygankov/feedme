@@ -10,6 +10,8 @@ struct DisplayFrame {
     float ringProgress;   // 0..1
     int   todayCount;     // 0..3 (clamped by display)
     int   minutesSinceFeed;  // for the small label; -1 = never
+    int   hour;           // local 0..23 (wall clock from IClock)
+    int   minute;         // local 0..59
 };
 
 class IDisplay {

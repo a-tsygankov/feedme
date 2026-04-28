@@ -40,6 +40,14 @@ void DisplayCoordinator::tick() {
     frame.minutesSinceFeed = (s.lastFeedTs == 0)
         ? -1
         : static_cast<int>((now - s.lastFeedTs) / 60);
+
+    // Wall-clock time for the Idle screen header. Modulo 86400 so the
+    // device shows a sensible time even before NTP syncs (clock falls
+    // back to millis/1000 in ArduinoClock — wraps every 24 h).
+    const int64_t secondsToday = ((now % 86400) + 86400) % 86400;
+    frame.hour   = static_cast<int>(secondsToday / 3600);
+    frame.minute = static_cast<int>((secondsToday % 3600) / 60);
+
     display_.render(frame);
     display_.tick();
 }
