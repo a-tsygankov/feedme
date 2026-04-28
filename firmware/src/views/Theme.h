@@ -56,12 +56,16 @@ constexpr Theme MONO = {
     .bezel       = 0x000000,
 };
 
+// `inline constexpr` so the value lives in one place across TUs
+// (every translation unit including Theme.h shares the same kTheme).
+// Plain `constexpr const Theme&` would get per-TU storage and trip
+// the linker with multiple-definition errors.
 #if defined(FEEDME_THEME_CREAM)
-constexpr const Theme& kTheme = CREAM;
+inline constexpr Theme kTheme = CREAM;
 #elif defined(FEEDME_THEME_MONO)
-constexpr const Theme& kTheme = MONO;
+inline constexpr Theme kTheme = MONO;
 #else
-constexpr const Theme& kTheme = AUBERGINE;
+inline constexpr Theme kTheme = AUBERGINE;
 #endif
 
 }  // namespace feedme::views

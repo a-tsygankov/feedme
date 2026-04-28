@@ -200,86 +200,65 @@ void setup() {
     //   LongPress    (physical)    -> snooze 30 min
     //   RotateCW     (knob)        -> menu next / +1   (TODO)
     //   RotateCCW    (knob)        -> menu prev / -1   (TODO)
+    // Inputs route through the active view's handleInput() first; the
+    // view transitions itself if appropriate. Cross-cutting effects
+    // (history overlay toggle, LED pulses) layer on top.
+    //
+    // Phase B note: log-feed-on-tap / snooze-on-longpress / threshold-
+    // tuning-on-rotate are temporarily disabled at the dispatch level —
+    // they migrate to their new homes in Phase C (Feed Confirm flow,
+    // Lock Confirm, Settings sub-editor). For now the device demonstrates
+    // Idle <-> Menu navigation only.
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
 
-        // Auto-dismiss the history overlay on any non-history gesture.
-        if (display.historyVisible() &&
-            ev != E::DoubleTap && ev != E::DoublePress) {
-            display.setHistoryVisible(false);
+        // History overlay is a cross-cutting modal; it intercepts double-
+        // gestures regardless of which view is active.
+        if (ev == E::DoubleTap || ev == E::DoublePress) {
+            if (display.historyVisible()) {
+                display.setHistoryVisible(false);
+                Serial.println("[input] -> history (dismiss)");
+                return;
+            }
+            Serial.println("[input] -> history");
+#if !defined(SIMULATOR)
+            leds.pulse(LED_HISTORY_COLOR, 300);
+#endif
+            std::array<feedme::application::FeedingService::HistoryEntry,
+                       feedme::application::FeedingService::HISTORY_CAPACITY> recent;
+            const size_t n = feeding.copyRecentEvents(recent);
+            feedme::adapters::HistoryItem items[
+                feedme::adapters::LvglDisplay::HISTORY_MAX]{};
+            const int64_t now = appClock.nowSec();
+            for (size_t i = 0; i < n && i < (size_t)feedme::adapters::LvglDisplay::HISTORY_MAX; ++i) {
+                const auto& e = recent[i];
+                items[i].ts = e.ts;
+                int64_t agoSec = (e.ts > 0 && now > e.ts) ? (now - e.ts) : 0;
+                int agoMin = static_cast<int>(agoSec / 60);
+                if (agoMin < 60) {
+                    snprintf(items[i].line, sizeof(items[i].line),
+                             "%dm  %s", agoMin, e.type.c_str());
+                } else {
+                    snprintf(items[i].line, sizeof(items[i].line),
+                             "%dh%02dm  %s",
+                             agoMin / 60, agoMin % 60, e.type.c_str());
+                }
+            }
+            display.setHistory(items, static_cast<int>(n));
+            display.setHistoryVisible(true);
+            return;
         }
 
-        switch (ev) {
-            case E::Tap:
-            case E::Press:
-                Serial.println("[input] -> log feed");
-                feeding.logFeeding("user");
-#if !defined(SIMULATOR)
-                leds.pulse(LED_FEED_COLOR);
-#endif
-                break;
-            case E::DoubleTap:
-            case E::DoublePress: {
-                // Toggle: a second double-gesture dismisses the overlay.
-                if (display.historyVisible()) {
-                    display.setHistoryVisible(false);
-                    Serial.println("[input] -> history (dismiss)");
-                    break;
-                }
-                Serial.println("[input] -> history");
-#if !defined(SIMULATOR)
-                leds.pulse(LED_HISTORY_COLOR, 300);
-#endif
-                std::array<feedme::application::FeedingService::HistoryEntry,
-                           feedme::application::FeedingService::HISTORY_CAPACITY> recent;
-                const size_t n = feeding.copyRecentEvents(recent);
-                feedme::adapters::HistoryItem items[
-                    feedme::adapters::LvglDisplay::HISTORY_MAX]{};
-                const int64_t now = appClock.nowSec();
-                for (size_t i = 0; i < n && i < (size_t)feedme::adapters::LvglDisplay::HISTORY_MAX; ++i) {
-                    const auto& e = recent[i];
-                    items[i].ts = e.ts;
-                    int64_t agoSec = (e.ts > 0 && now > e.ts) ? (now - e.ts) : 0;
-                    int agoMin = static_cast<int>(agoSec / 60);
-                    if (agoMin < 60) {
-                        snprintf(items[i].line, sizeof(items[i].line),
-                                 "%dm  %s", agoMin, e.type.c_str());
-                    } else {
-                        snprintf(items[i].line, sizeof(items[i].line),
-                                 "%dh%02dm  %s",
-                                 agoMin / 60, agoMin % 60, e.type.c_str());
-                    }
-                    Serial.printf("  [%zu] ts=%lld type=%s by=%s\n",
-                                  i, static_cast<long long>(e.ts),
-                                  e.type.c_str(), e.by.c_str());
-                }
-                display.setHistory(items, static_cast<int>(n));
-                display.setHistoryVisible(true);
-                break;
-            }
-            case E::LongTouch:
-                Serial.println("[input] -> menu (TODO)");
-                break;
-            case E::LongPress:
-                Serial.println("[input] -> snooze 30m");
-                feeding.snooze("user", SNOOZE_DURATION_SEC);
-#if !defined(SIMULATOR)
-                leds.pulse(LED_SNOOZE_COLOR);
-#endif
-                break;
-            case E::RotateCW: {
-                const int64_t v = displayCoord.adjustHungryThreshold(+THRESHOLD_STEP_SEC);
-                Serial.printf("[input] -> threshold +30m (now %lldh %02lldm)\n",
-                              v / 3600, (v % 3600) / 60);
-                break;
-            }
-            case E::RotateCCW: {
-                const int64_t v = displayCoord.adjustHungryThreshold(-THRESHOLD_STEP_SEC);
-                Serial.printf("[input] -> threshold -30m (now %lldh %02lldm)\n",
-                              v / 3600, (v % 3600) / 60);
-                break;
-            }
+        // History visible? Any other gesture dismisses it.
+        if (display.historyVisible()) {
+            display.setHistoryVisible(false);
+            return;
         }
+
+        // Otherwise: hand to the active view. It returns the next view
+        // name (or null to stay) and ScreenManager has already transitioned
+        // by the time handleInput returns.
+        display.handleInput(ev);
     };
     taps.onEvent(handleInput);
     button.onEvent(handleInput);

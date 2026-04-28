@@ -1,6 +1,5 @@
 #include "adapters/LvglDisplay.h"
 
-#include "assets/cats/cats.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -8,33 +7,6 @@
 namespace feedme::adapters {
 
 namespace {
-
-// Mood → cat slug, locked per docs/feedmeknob-plan.md (the design
-// handoff calls this MOOD_TO_CAT). Two sizes — 130 px hero for Idle
-// and 88 px for screens that pair the cat with other widgets.
-const lv_img_dsc_t* catForMood(feedme::domain::Mood m, bool small) {
-    using M = feedme::domain::Mood;
-    if (small) {
-        switch (m) {
-            case M::Happy:   return &cat_c2_88;
-            case M::Neutral: return &cat_b1_88;
-            case M::Warning:
-            case M::Hungry:  return &cat_b2_88;
-            case M::Sleepy:  return &cat_b3_88;
-            case M::Fed:     return &cat_c4_88;
-        }
-        return &cat_b1_88;
-    }
-    switch (m) {
-        case M::Happy:   return &cat_c2_130;
-        case M::Neutral: return &cat_b1_130;
-        case M::Warning:
-        case M::Hungry:  return &cat_b2_130;
-        case M::Sleepy:  return &cat_b3_130;
-        case M::Fed:     return &cat_c4_130;
-    }
-    return &cat_b1_130;
-}
 
 // ── LVGL display flush wired to TFT_eSPI ──────────────────────────────────
 constexpr int SCREEN_W = 240;
@@ -93,40 +65,32 @@ void LvglDisplay::buildScene() {
     lv_obj_t* scr = lv_scr_act();
     lv_obj_set_style_bg_color(scr, lv_color_hex(kTheme.bg), 0);
 
-    // Top: time (Georgia 38 in the design — we use Montserrat 24 since
-    // LVGL doesn't ship Georgia. Closest visual match available).
-    timeLbl_ = lv_label_create(scr);
-    lv_obj_set_style_text_color(timeLbl_, lv_color_hex(kTheme.ink), 0);
-    lv_obj_set_style_text_font(timeLbl_, &lv_font_montserrat_24, 0);
-    lv_label_set_text(timeLbl_, "--:--");
-    lv_obj_align(timeLbl_, LV_ALIGN_TOP_MID, 0, 32);
-
-    // Kicker line under time (uppercase, dim, letter-spaced).
-    kickerLbl_ = lv_label_create(scr);
-    lv_obj_set_style_text_color(kickerLbl_, lv_color_hex(kTheme.dim), 0);
-    lv_obj_set_style_text_font(kickerLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(kickerLbl_, "");
-    lv_obj_align(kickerLbl_, LV_ALIGN_TOP_MID, 0, 70);
-
-    // Cat hero in the centre of the disc, ~130 px. Image source is
-    // updated per-mood in render().
-    catImg_ = lv_img_create(scr);
-    lv_img_set_src(catImg_, catForMood(feedme::domain::Mood::Neutral, false));
-    lv_obj_align(catImg_, LV_ALIGN_CENTER, 0, 18);
-
-    // Footer line at bottom (next-meal hint — static for v0).
-    footerLbl_ = lv_label_create(scr);
-    lv_obj_set_style_text_color(footerLbl_, lv_color_hex(kTheme.dim), 0);
-    lv_obj_set_style_text_font(footerLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(footerLbl_, "next  13:00  lunch");
-    lv_obj_align(footerLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
+    // ScreenManager owns the per-view widget hierarchies.
+    screens_.begin(scr);
+    screens_.registerView(&idleView_);
+    screens_.registerView(&menuView_);
+    screens_.transition("idle");
 
     // Compile the legacy primitive cat without putting it on the screen.
-    // (The decision to keep it as a fallback lives in
-    // docs/feedmeknob-plan.md — open question 3, answered "keep".)
+    // (Open question 3 in docs/feedmeknob-plan.md, answered "keep".)
     (void)cat_;
 
     buildHistoryOverlay();
+}
+
+const char* LvglDisplay::handleInput(feedme::ports::TapEvent ev) {
+    const char* next = screens_.handleInput(ev);
+    if (next) screens_.transition(next);
+    return next;
+}
+
+void LvglDisplay::transitionTo(const char* viewName) {
+    screens_.transition(viewName);
+}
+
+const char* LvglDisplay::currentView() const {
+    auto* v = screens_.current();
+    return v ? v->name() : nullptr;
 }
 
 void LvglDisplay::buildHistoryOverlay() {
@@ -180,42 +144,7 @@ void LvglDisplay::setHistoryVisible(bool visible) {
 }
 
 void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
-    const bool changed =
-        firstRender_ ||
-        frame.mood != lastFrame_.mood ||
-        frame.minutesSinceFeed != lastFrame_.minutesSinceFeed ||
-        frame.hour != lastFrame_.hour ||
-        frame.minute != lastFrame_.minute;
-    if (!changed) return;
-
-    // Cat changes only when mood does (image swap is non-trivial).
-    if (firstRender_ || frame.mood != lastFrame_.mood) {
-        lv_img_set_src(catImg_, catForMood(frame.mood, /*small=*/false));
-    }
-
-    // Time top-line, "H:MM" (24h, no leading zero on hour to match the
-    // ScrIdle reference).
-    char timeBuf[8];
-    snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", frame.hour, frame.minute);
-    lv_label_set_text(timeLbl_, timeBuf);
-
-    // Kicker line: minutes-since-feed for now (real "TUE · DAY 12"
-    // wording needs date arithmetic; defer to a later ticket).
-    char kickerBuf[24];
-    if (frame.minutesSinceFeed < 0) {
-        snprintf(kickerBuf, sizeof(kickerBuf), "no record");
-    } else if (frame.minutesSinceFeed < 60) {
-        snprintf(kickerBuf, sizeof(kickerBuf), "fed %dm ago",
-                 frame.minutesSinceFeed);
-    } else {
-        snprintf(kickerBuf, sizeof(kickerBuf), "fed %dh %02dm ago",
-                 frame.minutesSinceFeed / 60,
-                 frame.minutesSinceFeed % 60);
-    }
-    lv_label_set_text(kickerLbl_, kickerBuf);
-
-    lastFrame_ = frame;
-    firstRender_ = false;
+    screens_.render(frame);
 }
 
 void LvglDisplay::tick() {
