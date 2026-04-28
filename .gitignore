@@ -1,6 +1,12 @@
 # PlatformIO
 firmware/.pio/
 
+# Local secrets — Wi-Fi credentials, anything that shouldn't reach
+# a public branch. The .example template is committed so contributors
+# know what shape the file should have.
+firmware/include/wifi_credentials.h
+firmware/include/local_secrets.h
+
 # Node
 **/node_modules/
 **/dist/

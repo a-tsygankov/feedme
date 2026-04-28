@@ -8,17 +8,24 @@ namespace feedme::application {
 DisplayCoordinator::DisplayCoordinator(feedme::ports::IDisplay& display,
                                        FeedingService& feeding,
                                        feedme::ports::IClock& clock,
+                                       feedme::ports::IPreferences& prefs,
                                        int64_t hungryThresholdSec)
     : display_(display),
       feeding_(feeding),
       clock_(clock),
+      prefs_(prefs),
       hungryThresholdSec_(hungryThresholdSec) {}
+
+void DisplayCoordinator::loadPreferences() {
+    hungryThresholdSec_ = prefs_.getHungryThresholdSec(hungryThresholdSec_);
+}
 
 int64_t DisplayCoordinator::adjustHungryThreshold(int64_t deltaSec) {
     int64_t v = hungryThresholdSec_ + deltaSec;
     if (v < MIN_THRESHOLD_SEC) v = MIN_THRESHOLD_SEC;
     if (v > MAX_THRESHOLD_SEC) v = MAX_THRESHOLD_SEC;
     hungryThresholdSec_ = v;
+    prefs_.setHungryThresholdSec(v);
     return v;
 }
 
