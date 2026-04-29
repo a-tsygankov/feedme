@@ -485,6 +485,28 @@ void test_quiet_window_bump_hour_wraps() {
     TEST_ASSERT_EQUAL_INT(1, q.startHour());
 }
 
+// Non-wrap (same-day) window: 10:00 → 14:00 is "quiet during midday",
+// e.g. nap time. Must NOT report quiet at 20:00 — that's the bug the
+// previous always-OR logic shipped with.
+void test_quiet_window_contains_same_day_window() {
+    QuietWindow q;
+    q.loadFromStorage(true, 10, 0, 14, 0);
+    TEST_ASSERT_TRUE(q.contains(10, 0));    // at start
+    TEST_ASSERT_TRUE(q.contains(12, 30));   // middle
+    TEST_ASSERT_TRUE(q.contains(13, 59));   // just before end
+    TEST_ASSERT_FALSE(q.contains(14, 0));   // exactly at end
+    TEST_ASSERT_FALSE(q.contains(20, 0));   // evening — outside
+    TEST_ASSERT_FALSE(q.contains(8, 0));    // morning — outside
+}
+
+void test_quiet_window_contains_empty_window_never_matches() {
+    QuietWindow q;
+    q.loadFromStorage(true, 12, 0, 12, 0);  // start == end → empty
+    TEST_ASSERT_FALSE(q.contains(12, 0));
+    TEST_ASSERT_FALSE(q.contains(0, 0));
+    TEST_ASSERT_FALSE(q.contains(23, 59));
+}
+
 // ── EventId ───────────────────────────────────────────────────────────────
 
 void test_event_id_length_is_32_hex_chars() {
@@ -579,6 +601,8 @@ int main(int, char**) {
     RUN_TEST(test_quiet_window_toggle_marks_dirty);
     RUN_TEST(test_quiet_window_load_clears_dirty);
     RUN_TEST(test_quiet_window_bump_hour_wraps);
+    RUN_TEST(test_quiet_window_contains_same_day_window);
+    RUN_TEST(test_quiet_window_contains_empty_window_never_matches);
 
     RUN_TEST(test_event_id_length_is_32_hex_chars);
     RUN_TEST(test_event_id_only_hex_chars);

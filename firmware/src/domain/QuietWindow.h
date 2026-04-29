@@ -56,12 +56,29 @@ public:
     }
 
     // True if the given local hour:minute falls inside the (always-
-    // computed, regardless of enabled) window. Wraps midnight.
+    // computed, regardless of enabled) window.
+    //
+    // Two shapes:
+    //   - Wrap-midnight   (start > end, e.g. 22:00 → 06:30):
+    //       contained iff  now >= start  OR  now < end
+    //   - Same-day        (start <= end, e.g. 10:00 → 14:00):
+    //       contained iff  now >= start  AND  now < end
+    //
+    // start == end is treated as "empty window" (never contained) to
+    // match the editor's UX — saving the same time on both ends should
+    // be the same as turning quiet hours off, not "always on".
+    //
+    // Both endpoints use [start, end) — the start minute counts as
+    // inside, the end minute counts as outside. Matches the user
+    // intuition of "until 06:30" meaning quiet up to but not including
+    // 06:30.
     bool contains(int hour, int minute) const {
         const int now   = hour * 60 + minute;
         const int start = startHour_ * 60 + startMinute_;
         const int end   = endHour_   * 60 + endMinute_;
-        return now >= start || now < end;
+        if (start == end) return false;
+        if (start > end)  return now >= start || now < end;   // wraps midnight
+        return now >= start && now < end;                      // same-day window
     }
 
 private:
