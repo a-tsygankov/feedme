@@ -34,7 +34,8 @@ public:
     void setUserRoster (const feedme::domain::UserRoster* roster) { userRoster_ = roster; }
     void setCoordinator(const feedme::application::DisplayCoordinator* c) { coord_ = c; }
 
-    const char* name() const override { return "settings"; }
+    const char* name()   const override { return "settings"; }
+    const char* parent() const override { return "menu"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

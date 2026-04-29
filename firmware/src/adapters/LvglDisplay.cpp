@@ -4,6 +4,13 @@
 
 #include <Arduino.h>
 
+#if !defined(SIMULATOR)
+#  include "adapters/LvglLittleFs.h"
+// LVGL's main header doesn't auto-include the PNG decoder — pull it
+// in explicitly so lv_png_init() is declared.
+#  include <src/extra/libs/png/lv_png.h>
+#endif
+
 namespace feedme::adapters {
 
 namespace {
@@ -47,6 +54,23 @@ void LvglDisplay::begin() {
     tft.fillScreen(TFT_BLACK);
 
     lv_init();
+
+#if !defined(SIMULATOR)
+    // Register the PNG decoder with LVGL's image-decoder chain.
+    // LV_USE_PNG=1 in lv_conf.h compiles the source in; this call
+    // plugs it into the lookup so file extensions ending in .png
+    // get routed to the pngle-based decoder. Without this, LVGL
+    // falls back to "no data" rendering for any image source.
+    lv_png_init();
+
+    // Bridge LittleFS into LVGL so views can use "L:/cats/c2_88.png"
+    // paths in lv_img_set_src. Must run before buildScene() because
+    // lv_img_set_src eagerly opens the file to read header dimensions.
+    // Requires LittleFS already mounted (main.cpp arranges this by
+    // running storage.begin() before display.begin()).
+    feedme::adapters::registerLvglLittleFs();
+#endif
+
     lv_disp_draw_buf_init(&draw_buf, buf1, nullptr, SCREEN_W * BUF_LINES);
 
     static lv_disp_drv_t disp_drv;
@@ -68,10 +92,12 @@ void LvglDisplay::buildScene() {
     // ScreenManager owns the per-view widget hierarchies.
     // Wire shared portion state into the views that read/mutate it.
     // FeedingService is injected later (in main.cpp) once it exists.
+    idleView_.setRoster(&roster_);
     feedConfirmView_.setRoster(&roster_);
     portionAdjustView_.setRoster(&roster_);
     pouringView_.setRoster(&roster_);
     scheduleView_.setRoster(&roster_);
+    scheduleEditView_.setRoster(&roster_);
     quietView_.setQuiet(&quiet_);
     settingsView_.setQuiet(&quiet_);
     settingsView_.setWake(&wake_);
@@ -99,6 +125,7 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&pouringView_);
     screens_.registerView(&fedView_);
     screens_.registerView(&scheduleView_);
+    screens_.registerView(&scheduleEditView_);
     screens_.registerView(&quietView_);
     screens_.registerView(&settingsView_);
     screens_.registerView(&lockConfirmView_);
@@ -182,6 +209,7 @@ void LvglDisplay::setHistory(const HistoryItem* items, int count) {
 void LvglDisplay::setHistoryVisible(bool visible) {
     historyVisible_ = visible;
     if (visible) {
+        historyShownMs_ = millis();
         lv_obj_clear_flag(historyPanel_, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(historyPanel_, LV_OBJ_FLAG_HIDDEN);
@@ -193,6 +221,13 @@ void LvglDisplay::render(const feedme::ports::DisplayFrame& frame) {
 }
 
 void LvglDisplay::tick() {
+    // Auto-dismiss the history overlay so it doesn't strand the user
+    // if they wandered off after a double-tap. Cheap to check each
+    // tick; setHistoryVisible(false) is idempotent.
+    if (historyVisible_
+        && (millis() - historyShownMs_) >= HISTORY_AUTO_DISMISS_MS) {
+        setHistoryVisible(false);
+    }
     lv_timer_handler();
 }
 

@@ -156,11 +156,13 @@ const char* ScheduleView::handleInput(feedme::ports::TapEvent ev) {
             if (selectedIdx_ >= 0) selectedIdx_ = (selectedIdx_ + N - 1) % N;
             return nullptr;
         case E::Tap:
-        case E::Press:
             return "idle";
-        case E::LongPress:
-        case E::LongTouch:
-            return "menu";
+        case E::Press:
+            // Press on the knob enters the schedule editor for the
+            // active cat. Tap (touch) keeps the canonical "back to
+            // idle" behaviour from the gesture map.
+            return "scheduleEdit";
+        // Long-press / long-touch → ScreenManager fallback to parent().
         default:
             return nullptr;
     }

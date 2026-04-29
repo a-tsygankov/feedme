@@ -85,8 +85,9 @@ const char* PortionAdjustView::handleInput(feedme::ports::TapEvent ev) {
         case E::RotateCCW: roster_->activePortion().bumpDown(); return nullptr;
         case E::Tap:
         case E::Press:     return "feedConfirm";
-        case E::LongPress:
-        case E::LongTouch: return "menu";
+        // Long-press / long-touch → ScreenManager fallback to parent()
+        // (= "feedConfirm" — the prior buggy "menu" return skipped a
+        // level and is removed).
         default:           return nullptr;
     }
 }

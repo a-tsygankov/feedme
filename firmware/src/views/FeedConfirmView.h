@@ -20,7 +20,8 @@ public:
     // Adaptive UI rule — N=1 households never see the picker.
     void setUserRoster(const feedme::domain::UserRoster* users) { users_ = users; }
 
-    const char* name() const override { return "feedConfirm"; }
+    const char* name()   const override { return "feedConfirm"; }
+    const char* parent() const override { return "menu"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;
@@ -32,6 +33,8 @@ private:
 
     feedme::domain::CatRoster*        roster_ = nullptr;
     const feedme::domain::UserRoster* users_  = nullptr;
+    char                              lastDrawnSlug_[4] = {0};
+    int                               lastDrawnActiveIdx_ = -1;
 
     lv_obj_t* root_         = nullptr;
     lv_obj_t* arcBg_        = nullptr;

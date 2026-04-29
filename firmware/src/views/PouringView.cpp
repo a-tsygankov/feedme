@@ -1,7 +1,7 @@
 #include "views/PouringView.h"
 
 #include "application/FeedingService.h"
-#include "assets/cats/cats.h"
+#include "assets/cats/CatSlug.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -59,7 +59,7 @@ void PouringView::build(lv_obj_t* parent) {
 
     // Faded neutral cat at top.
     catImg_ = lv_img_create(root_);
-    lv_img_set_src(catImg_, &cat_b1_88);
+    lv_img_set_src(catImg_, feedme::assets::slugToPath("B1", 88));
     lv_obj_set_style_img_opa(catImg_, LV_OPA_50, 0);
     lv_obj_align(catImg_, LV_ALIGN_TOP_MID, 0, 50);
 
@@ -120,7 +120,10 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
         // currentFeederName() returns the picker selection if one was
         // made (N≥2 path), or primaryName() as the silent N=1 fallback.
         const char* owner = users_ ? users_->currentFeederName() : "you";
-        if (feeding_) feeding_->logFeeding(owner);
+        // Active cat slot — events get attributed to whichever cat
+        // is currently selected on Idle.
+        const int catSlot = roster_ ? roster_->activeCatIdx() : 0;
+        if (feeding_) feeding_->logFeeding(owner, catSlot);
         // Reset the transient picker selection so the next feed starts
         // fresh — devices are shared, no remembered "current user".
         if (users_) users_->clearCurrentFeeder();

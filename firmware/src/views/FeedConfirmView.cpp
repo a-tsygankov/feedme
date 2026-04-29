@@ -1,9 +1,10 @@
 #include "views/FeedConfirmView.h"
 
-#include "assets/cats/cats.h"
+#include "assets/cats/CatSlug.h"
 #include "views/Theme.h"
 
 #include <stdio.h>
+#include <string.h>
 
 namespace feedme::views {
 
@@ -63,9 +64,11 @@ void FeedConfirmView::build(lv_obj_t* parent) {
     lv_obj_set_style_arc_color(arcFg_, lv_color_hex(kTheme.accent), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(arcFg_, 4, LV_PART_INDICATOR);
 
-    // Hungry cat at top (B2, 88 px). Per JSX: top:58, w/h:88.
+    // Hungry cat at top (88 px). Per JSX: top:58, w/h:88. Source is
+    // overwritten in redraw() with the active cat's slug — this is
+    // just a sensible build-time default so the widget has dimensions.
     catImg_ = lv_img_create(root_);
-    lv_img_set_src(catImg_, &cat_b2_88);
+    lv_img_set_src(catImg_, feedme::assets::slugToPath("B2", 88));
     lv_obj_align(catImg_, LV_ALIGN_TOP_MID, 0, 58);
 
     // Portion number, Georgia in design — Montserrat 24 here. Top:152.
@@ -91,7 +94,20 @@ void FeedConfirmView::build(lv_obj_t* parent) {
 
 void FeedConfirmView::redraw() {
     if (!roster_ || roster_->count() == 0) return;
-    const int g = roster_->activePortion().grams();
+    const auto& cat = roster_->active();
+    const int g = cat.portion.grams();
+    const int activeIdx = roster_->activeCatIdx();
+
+    // Hero image — active cat's slug → LittleFS path. Bad slugs land
+    // on C2 (happy) inside slugToPath().
+    if (activeIdx != lastDrawnActiveIdx_
+        || strncmp(cat.slug, lastDrawnSlug_, 4) != 0) {
+        lv_img_set_src(catImg_, feedme::assets::slugToPath(cat.slug, 88));
+        strncpy(lastDrawnSlug_, cat.slug, 3);
+        lastDrawnSlug_[3]   = '\0';
+        lastDrawnActiveIdx_ = activeIdx;
+    }
+
     if (g == lastDrawnG_) return;
     lastDrawnG_ = g;
 
@@ -105,7 +121,9 @@ void FeedConfirmView::redraw() {
 }
 
 void FeedConfirmView::onEnter() {
-    lastDrawnG_ = -1;  // force a redraw
+    lastDrawnG_         = -1;  // force a redraw
+    lastDrawnActiveIdx_ = -1;
+    lastDrawnSlug_[0]   = '\0';
     redraw();
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -129,8 +147,7 @@ const char* FeedConfirmView::handleInput(feedme::ports::TapEvent ev) {
             if (users_ && users_->count() >= 2) return "feederPick";
             return "pouring";
         case E::Tap:       return "portionAdjust";
-        case E::LongPress:
-        case E::LongTouch: return "menu";
+        // Long-press / long-touch → ScreenManager fallback to parent().
         default:           return nullptr;
     }
 }

@@ -26,10 +26,10 @@ void CatEditView::build(lv_obj_t* parent) {
     lv_label_set_text(nameLbl_, "");
     lv_obj_align(nameLbl_, LV_ALIGN_TOP_MID, 0, 36);
 
-    // Cat image preview — defaults to the C2 happy cat at 88px until
-    // redraw populates it from the editing cat's slug.
+    // Cat image preview — defaults to C2 happy at 88 px until redraw
+    // populates it from the editing cat's slug.
     catImg_ = lv_img_create(root_);
-    lv_img_set_src(catImg_, &cat_c2_88);
+    lv_img_set_src(catImg_, feedme::assets::slugToPath("C2", 88));
     lv_obj_align(catImg_, LV_ALIGN_CENTER, 0, -8);
 
     slugLbl_ = lv_label_create(root_);
@@ -64,8 +64,7 @@ void CatEditView::redraw() {
 
     lv_label_set_text(nameLbl_, c.name);
     lv_label_set_text(slugLbl_, c.slug);
-    const lv_img_dsc_t* img = feedme::assets::slugToImage(c.slug, 88);
-    if (img) lv_img_set_src(catImg_, img);
+    lv_img_set_src(catImg_, feedme::assets::slugToPath(c.slug, 88));
 
     strncpy(lastDrawnSlug_, c.slug, 3);
     lastDrawnSlug_[3] = '\0';

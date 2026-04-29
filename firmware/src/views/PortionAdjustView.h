@@ -15,7 +15,8 @@ class PortionAdjustView : public IView {
 public:
     void setRoster(feedme::domain::CatRoster* roster) { roster_ = roster; }
 
-    const char* name() const override { return "portionAdjust"; }
+    const char* name()   const override { return "portionAdjust"; }
+    const char* parent() const override { return "feedConfirm"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

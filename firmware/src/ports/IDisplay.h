@@ -12,6 +12,7 @@ struct DisplayFrame {
     int   minutesSinceFeed;  // for the small label; -1 = never
     int   hour;           // local 0..23 (wall clock from IClock)
     int   minute;         // local 0..59
+    char  lastFedBy[16];  // attribution of the most recent feed; empty if none
 };
 
 class IDisplay {

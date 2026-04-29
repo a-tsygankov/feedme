@@ -109,6 +109,15 @@ public:
         catThresh_[slot] = v;
         catThreshSet_[slot] = true;
     }
+    int  getCatScheduleHour(int c, int m, int d) override {
+        return (c >= 0 && c < 4 && m >= 0 && m < 4 && catSchedSet_[c][m])
+               ? catSched_[c][m] : d;
+    }
+    void setCatScheduleHour(int c, int m, int v) override {
+        if (c < 0 || c >= 4 || m < 0 || m >= 4) return;
+        catSched_[c][m]    = v;
+        catSchedSet_[c][m] = true;
+    }
 
     int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
     void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
@@ -167,6 +176,8 @@ private:
     bool    catPortionSet_[4] = {false};
     int64_t catThresh_[4] = {0};
     bool    catThreshSet_[4] = {false};
+    int     catSched_   [4][4] = {{0}};
+    bool    catSchedSet_[4][4] = {{false}};
 };
 
 }  // namespace feedme::adapters

@@ -1,6 +1,6 @@
 #include "views/FedView.h"
 
-#include "assets/cats/cats.h"
+#include "assets/cats/CatSlug.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -19,7 +19,7 @@ void FedView::build(lv_obj_t* parent) {
     lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
 
     catImg_ = lv_img_create(root_);
-    lv_img_set_src(catImg_, &cat_c4_130);
+    lv_img_set_src(catImg_, feedme::assets::slugToPath("C4", 130));
     lv_obj_align(catImg_, LV_ALIGN_CENTER, 0, 0);
 
     // LVGL ships no built-in heart icon — use a stylised char as

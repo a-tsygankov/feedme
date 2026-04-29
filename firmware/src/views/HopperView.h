@@ -14,7 +14,8 @@ namespace feedme::views {
 // static until a real hopper sensor adapter lands.
 class HopperView : public IView {
 public:
-    const char* name() const override { return "hopper"; }
+    const char* name()   const override { return "hopper"; }
+    const char* parent() const override { return "menu"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

@@ -11,6 +11,8 @@ struct PendingEvent {
     int64_t     ts;
     std::string type;            // "feed" | "snooze"
     std::string by;
+    uint8_t     cat = 0;         // stable Cat::id; 0 maps to roster slot 0
+                                 // (the silent default for single-cat households).
 };
 
 class IStorage {

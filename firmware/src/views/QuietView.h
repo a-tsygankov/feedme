@@ -19,7 +19,8 @@ class QuietView : public IView {
 public:
     void setQuiet(feedme::domain::QuietWindow* quiet) { quiet_ = quiet; }
 
-    const char* name() const override { return "quiet"; }
+    const char* name()   const override { return "quiet"; }
+    const char* parent() const override { return "menu"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

@@ -268,9 +268,7 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return "usersList";
             }
             return nullptr;
-        case E::LongPress:
-        case E::LongTouch:
-            return "menu";
+        // Long-press / long-touch → ScreenManager fallback to parent().
         default:
             return nullptr;
     }

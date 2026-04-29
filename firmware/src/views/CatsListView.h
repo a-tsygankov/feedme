@@ -26,7 +26,8 @@ public:
     void setRoster(feedme::domain::CatRoster* roster) { roster_ = roster; }
     void setEditTarget(CatEditView* editView) { editView_ = editView; }
 
-    const char* name() const override { return "catsList"; }
+    const char* name()   const override { return "catsList"; }
+    const char* parent() const override { return "settings"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

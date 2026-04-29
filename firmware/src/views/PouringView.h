@@ -27,7 +27,8 @@ public:
     // picker selection after logging — non-const for that reason.
     void setUserRoster(feedme::domain::UserRoster* roster) { users_ = roster; }
 
-    const char* name() const override { return "pouring"; }
+    const char* name()   const override { return "pouring"; }
+    const char* parent() const override { return "menu"; }  // long-press = cancel pour
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

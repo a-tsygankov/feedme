@@ -144,7 +144,11 @@ uint32_t ambientColorFor(feedme::domain::Mood m) {
 constexpr int SNOOZE_DURATION_SEC      = 30 * 60;  // long-press = 30 minutes
 constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
-feedme::application::FeedingService feeding(appClock, network, storage);
+// FeedingService takes the cat roster so events stamp Cat::id and
+// each cat keeps its own state. DisplayCoordinator reads the active
+// cat's state via roster.activeCatIdx().
+feedme::application::FeedingService feeding(
+    appClock, network, storage, display.roster());
 // Threshold is now per-cat (Phase E.x); DisplayCoordinator reads it
 // from the active cat. The default lives in Cat::DEFAULT_THRESHOLD_S.
 feedme::application::DisplayCoordinator displayCoord(
@@ -173,6 +177,11 @@ void setup() {
     }
     Serial.println("[feedme] boot");
 
+    // Mount LittleFS BEFORE LVGL init — display.begin() registers an
+    // lv_fs driver pointing at LittleFS and views eagerly open image
+    // files in their build() to read PNG header dimensions.
+    storage.begin();
+
     display.begin();
     Serial.println("[feedme] display ready");
 
@@ -181,7 +190,6 @@ void setup() {
 #endif
 
     network.begin();
-    storage.begin();
     prefs.begin();
     // (DisplayCoordinator::loadPreferences removed — threshold is now
     // per-cat and seeded inside the roster load block below.)
@@ -233,6 +241,16 @@ void setup() {
                                 haveSlug ? slugBuf : nullptr,
                                 portion,
                                 threshold);
+            // Per-slot schedule hours layer on top of the defaults
+            // already populated by appendLoaded → MealSchedule's ctor.
+            // Reach into the cat we just appended (count_-1) and
+            // overwrite each slot from NVS if a stored value exists.
+            auto& cat = roster.at(roster.count() - 1);
+            for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
+                const int defH = cat.schedule.slotHour(s);
+                const int h    = prefs.getCatScheduleHour(i, s, defH);
+                cat.schedule.setSlotHour(s, h);
+            }
         }
         roster.seedDefaultIfEmpty();
         roster.markClean();
@@ -247,6 +265,9 @@ void setup() {
                 prefs.setCatSlug       (i, roster.at(i).slug);
                 prefs.setCatPortion    (i, roster.at(i).portion.grams());
                 prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+                for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
+                    prefs.setCatScheduleHour(i, s, roster.at(i).schedule.slotHour(s));
+                }
             }
         }
     }
@@ -299,21 +320,13 @@ void setup() {
     leds.begin();
 #endif
 
-    // All eight input events route through one handler. Cross-cutting
-    // overlays (history) and the LockConfirm parental gate intercept
-    // here; everything else hands to the active view, which returns
-    // the next view's name (or null) and ScreenManager has already
-    // transitioned by the time we return.
-    //
-    // LongPress / LongTouch from any screen except Pouring opens
-    // LockConfirm (per the FSM). Pouring keeps long-touch as direct
-    // cancel — confirming the cancel of an in-progress action would
-    // be perverse. Per-screen LongPress handlers in the other views
-    // (FeedConfirm, PortionAdjust, Schedule, Quiet, Settings) are now
-    // shadowed by this interception and effectively dead — they return
-    // "menu" but never run; canonical cancel is "release LockConfirm
-    // before the threshold" → returns to whichever view we came from.
-    // Cleanup of those handlers is deferred to a follow-up sweep.
+    // All eight input events route through one handler. Only the
+    // history overlay (double-tap / double-press) is cross-cutting at
+    // the dispatcher level — everything else, including the universal
+    // "back up one level" gesture (long-press / long-touch), is
+    // handled by ScreenManager via IView::parent(). The LockConfirm
+    // view stays registered for any future explicit destructive flow
+    // but is no longer auto-triggered by long-press.
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
 
@@ -340,13 +353,24 @@ void setup() {
                 items[i].ts = e.ts;
                 int64_t agoSec = (e.ts > 0 && now > e.ts) ? (now - e.ts) : 0;
                 int agoMin = static_cast<int>(agoSec / 60);
+                // Multi-cat: prefix the cat name when the household has
+                // 2+ cats (adaptive UI rule). With N=1 the cat is
+                // implicit and the line stays the original "Xm feed".
+                char catPrefix[20] = "";
+                if (display.roster().count() >= 2) {
+                    const int slot = display.roster().findSlotById(e.cat);
+                    if (slot >= 0) {
+                        snprintf(catPrefix, sizeof(catPrefix), "%s ",
+                                 display.roster().at(slot).name);
+                    }
+                }
                 if (agoMin < 60) {
                     snprintf(items[i].line, sizeof(items[i].line),
-                             "%dm  %s", agoMin, e.type.c_str());
+                             "%s%dm  %s", catPrefix, agoMin, e.type.c_str());
                 } else {
                     snprintf(items[i].line, sizeof(items[i].line),
-                             "%dh%02dm  %s",
-                             agoMin / 60, agoMin % 60, e.type.c_str());
+                             "%s%dh%02dm  %s",
+                             catPrefix, agoMin / 60, agoMin % 60, e.type.c_str());
                 }
             }
             display.setHistory(items, static_cast<int>(n));
@@ -358,21 +382,6 @@ void setup() {
         if (display.historyVisible()) {
             display.setHistoryVisible(false);
             return;
-        }
-
-        // LockConfirm cross-cutting interception — long-press / long-touch
-        // from any view EXCEPT pouring (which uses long-touch for direct
-        // cancel) opens the parental gate. Skip if we're already on
-        // LockConfirm so re-firing LongPress mid-hold is a no-op.
-        if (ev == E::LongPress || ev == E::LongTouch) {
-            const char* curName = display.currentView();
-            const bool inPouring     = curName && std::strcmp(curName, "pouring") == 0;
-            const bool inLockConfirm = curName && std::strcmp(curName, "lockConfirm") == 0;
-            if (!inPouring && !inLockConfirm) {
-                display.lockConfirmView().setReturnTo(curName ? curName : "idle");
-                display.transitionTo("lockConfirm");
-                return;
-            }
         }
 
         // Otherwise: hand to the active view. It returns the next view
@@ -388,7 +397,7 @@ void setup() {
 #if defined(SIMULATOR)
     // Pretend the cat was fed an hour ago at boot, then never again, so we
     // start in Happy and walk the full arc as time accelerates.
-    feeding.logFeeding("sim");
+    feeding.logFeeding("sim", 0);  // seed cat sits at slot 0
 #endif
 }
 
@@ -433,6 +442,9 @@ void loop() {
                 prefs.setCatSlug       (i, roster.at(i).slug);
                 prefs.setCatPortion    (i, roster.at(i).portion.grams());
                 prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+                for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
+                    prefs.setCatScheduleHour(i, s, roster.at(i).schedule.slotHour(s));
+                }
             }
         }
         if (display.userRoster().consumeDirty()) {
@@ -445,11 +457,15 @@ void loop() {
         }
 
 #if !defined(SIMULATOR)
-        // Update ambient LED-ring colour when the mood changes.
+        // Update ambient LED-ring colour when the mood changes. Mood
+        // tracks the active cat — multi-cat households see the LEDs
+        // re-tint on cat switch (rotate-on-Idle).
         static feedme::domain::Mood lastMood = feedme::domain::Mood::Happy;
         static bool lastMoodValid = false;
+        const int activeSlot = display.roster().activeCatIdx();
         const feedme::domain::Mood mood = feedme::domain::calculateMood(
-            feeding.state(), appClock.nowSec(), displayCoord.hungryThresholdSec());
+            feeding.state(activeSlot), appClock.nowSec(),
+            displayCoord.hungryThresholdSec());
         if (!lastMoodValid || mood != lastMood) {
             lastMoodValid = true;
             lastMood = mood;
