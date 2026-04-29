@@ -43,13 +43,15 @@ public:
     bool isOnline() const override;
     std::optional<feedme::domain::FeedingState>
     fetchState(uint8_t catId) override;
-    bool postFeed(const std::string& by, int64_t ts, uint8_t catId) override;
+    bool postFeed(const std::string& by, int64_t ts, uint8_t catId,
+                  const std::string& eventId) override;
     bool postSnooze(const std::string& by, int64_t ts, int durationSec,
-                    uint8_t catId) override;
+                    uint8_t catId,
+                    const std::string& eventId) override;
 
 private:
     bool postEvent(const std::string& by, const char* type, int durationSec,
-                   uint8_t catId);
+                   uint8_t catId, const std::string& eventId);
 
     std::string baseUrl_;   // no trailing slash
     std::string hid_;

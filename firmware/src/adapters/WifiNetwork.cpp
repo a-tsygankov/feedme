@@ -99,17 +99,20 @@ WifiNetwork::fetchState(uint8_t catId) {
     return out;
 }
 
-bool WifiNetwork::postFeed(const std::string& by, int64_t /*ts*/, uint8_t catId) {
-    return postEvent(by, "feed", 0, catId);
+bool WifiNetwork::postFeed(const std::string& by, int64_t /*ts*/,
+                           uint8_t catId, const std::string& eventId) {
+    return postEvent(by, "feed", 0, catId, eventId);
 }
 
 bool WifiNetwork::postSnooze(const std::string& by, int64_t /*ts*/,
-                             int durationSec, uint8_t catId) {
-    return postEvent(by, "snooze", durationSec, catId);
+                             int durationSec, uint8_t catId,
+                             const std::string& eventId) {
+    return postEvent(by, "snooze", durationSec, catId, eventId);
 }
 
 bool WifiNetwork::postEvent(const std::string& by, const char* type,
-                            int /*durationSec*/, uint8_t catId) {
+                            int /*durationSec*/, uint8_t catId,
+                            const std::string& eventId) {
     if (!isOnline() || baseUrl_.empty() || hid_.empty()) return false;
 
     char catBuf[8];
@@ -120,6 +123,7 @@ bool WifiNetwork::postEvent(const std::string& by, const char* type,
     doc["by"]   = by;
     doc["type"] = type;
     doc["cat"]  = catBuf;
+    if (!eventId.empty()) doc["eventId"] = eventId;
     // (Server ignores `note` in this schema; durationSec for snooze
     // would belong here once the schema gains a duration column.)
 

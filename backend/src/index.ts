@@ -11,6 +11,11 @@ interface FeedBody {
   // single-cat household value. The firmware passes the stable
   // Cat::id when it learns to send per-cat events.
   cat?: string;
+  // Idempotency key — 128-bit hex UUID. Replays of the same eventId
+  // get silently dropped via the unique index on `event_id`. Optional
+  // for back-compat with pre-Phase-2.x clients that don't generate
+  // ids; NULL writes are still unique-distinct in SQLite.
+  eventId?: string;
 }
 
 const json = (data: unknown, init: ResponseInit = {}) =>
@@ -82,12 +87,19 @@ export default {
       const ts = Math.floor(Date.now() / 1000);
       const type = body.type ?? "feed";
       const cat = body.cat ?? "primary";
+      const eventId = body.eventId ?? null;
+      // INSERT OR IGNORE silently dedups on the unique event_id
+      // index. Replay of the same eventId (pending-queue retry that
+      // the server already processed) is a no-op. Returns ok=true
+      // either way — the event landed; the client doesn't need to
+      // know whether this specific call wrote the row.
       await env.DB.prepare(
-        "INSERT INTO events (hid, ts, type, by, note, cat) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO events (hid, ts, type, by, note, cat, event_id) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-        .bind(body.hid, ts, type, body.by, body.note ?? null, cat)
+        .bind(body.hid, ts, type, body.by, body.note ?? null, cat, eventId)
         .run();
-      return json({ ok: true, ts, type, by: body.by, cat });
+      return json({ ok: true, ts, type, by: body.by, cat, eventId });
     }
 
     if (url.pathname === "/api/history" && req.method === "GET") {
@@ -101,10 +113,10 @@ export default {
 
       const stmt = cat
         ? env.DB.prepare(
-            "SELECT id, ts, type, by, note, cat FROM events WHERE hid = ? AND cat = ? ORDER BY ts DESC LIMIT ?",
+            "SELECT id, ts, type, by, note, cat, event_id FROM events WHERE hid = ? AND cat = ? ORDER BY ts DESC LIMIT ?",
           ).bind(hid, cat, n)
         : env.DB.prepare(
-            "SELECT id, ts, type, by, note, cat FROM events WHERE hid = ? ORDER BY ts DESC LIMIT ?",
+            "SELECT id, ts, type, by, note, cat, event_id FROM events WHERE hid = ? ORDER BY ts DESC LIMIT ?",
           ).bind(hid, n);
 
       const { results } = await stmt.all();
