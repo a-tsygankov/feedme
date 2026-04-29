@@ -17,6 +17,24 @@ constexpr int ARC_DIAM   = ARC_RADIUS * 2;
 constexpr int ARC_ROTATION = 270;
 constexpr int ARC_SWEEP_MAX = 360;
 
+// Total grams about to be poured — must match what FeedConfirm advertised
+// to the user. FeedConfirm sets roster.feedSelection() before this view
+// runs:
+//   - FEED_ALL: sum of every cat's portion (the "feed everyone" default).
+//   - 0..N-1:   that cat's individual portion.
+//   - else:     defensive fallback to active cat (handles the unlikely
+//               "entered Pouring through some other path" case).
+int displayedTotal(const feedme::domain::CatRoster& r) {
+    const int sel = r.feedSelection();
+    if (sel == feedme::domain::CatRoster::FEED_ALL) {
+        int sum = 0;
+        for (int i = 0; i < r.count(); ++i) sum += r.at(i).portion.grams();
+        return sum;
+    }
+    if (sel >= 0 && sel < r.count()) return r.at(sel).portion.grams();
+    return r.activePortion().grams();
+}
+
 }  // namespace
 
 void PouringView::build(lv_obj_t* parent) {
@@ -108,7 +126,7 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
         lastSweep_ = sweep;
         lv_arc_set_value(arcFg_, sweep);
 
-        const int total = roster_->activePortion().grams();
+        const int total = displayedTotal(*roster_);
         const int poured = static_cast<int>(progress * total);
         char buf[24];
         snprintf(buf, sizeof(buf), "%d g of %d", poured, total);
