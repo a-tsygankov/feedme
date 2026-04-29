@@ -46,7 +46,10 @@ void ScheduleEditView::build(lv_obj_t* parent) {
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(hintLbl_, "TURN  ADJ  PRESS  NEXT");
+    lv_label_set_text(hintLbl_, "TURN ADJ  PRESS NEXT");
+    lv_obj_set_width(hintLbl_, 160);
+    lv_label_set_long_mode(hintLbl_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(hintLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -24);
 }
 
