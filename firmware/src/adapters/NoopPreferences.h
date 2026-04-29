@@ -118,6 +118,8 @@ public:
         catSched_[c][m]    = v;
         catSchedSet_[c][m] = true;
     }
+    int  getTimeZoneOffsetMin(int d) override { return tzHasValue_ ? tzMin_ : d; }
+    void setTimeZoneOffsetMin(int v) override { tzMin_ = v; tzHasValue_ = true; }
 
     int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
     void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
@@ -178,6 +180,8 @@ private:
     bool    catThreshSet_[4] = {false};
     int     catSched_   [4][4] = {{0}};
     bool    catSchedSet_[4][4] = {{false}};
+    int     tzMin_       = 0;
+    bool    tzHasValue_  = false;
 };
 
 }  // namespace feedme::adapters

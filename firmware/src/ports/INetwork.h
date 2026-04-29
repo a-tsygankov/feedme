@@ -7,21 +7,30 @@
 
 namespace feedme::ports {
 
+// All methods are scoped to a single cat (stable Cat::id, not slot
+// index — adapters don't need to know about CatRoster). The caller
+// (FeedingService) translates slot→id at the boundary so per-cat
+// state stays addressable across renames + reorders.
 class INetwork {
 public:
     virtual ~INetwork() = default;
     virtual void begin() = 0;
     virtual bool isOnline() const = 0;
 
-    // Pull current state from the backend. nullopt on failure.
-    virtual std::optional<feedme::domain::FeedingState> fetchState() = 0;
-
-    // Push a feed event. Returns the new state if the server returned one.
+    // Pull current state for one cat from the backend. Returns
+    // nullopt on failure (network down, parse error, non-200).
     virtual std::optional<feedme::domain::FeedingState>
-    postFeed(const std::string& by, int64_t ts) = 0;
+    fetchState(uint8_t catId) = 0;
 
-    virtual std::optional<feedme::domain::FeedingState>
-    postSnooze(const std::string& by, int64_t ts, int durationSec) = 0;
+    // Push events. Return true if the server accepted (HTTP 200);
+    // false on any failure (offline, timeout, non-200). The
+    // pending-queue drain re-enqueues events whose post returned
+    // false. The worker today returns just an ack, so we don't
+    // bother bringing back a state — next fetchState picks it up.
+    virtual bool postFeed(const std::string& by, int64_t ts, uint8_t catId) = 0;
+
+    virtual bool postSnooze(const std::string& by, int64_t ts,
+                            int durationSec, uint8_t catId) = 0;
 };
 
 }  // namespace feedme::ports

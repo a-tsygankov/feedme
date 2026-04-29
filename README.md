@@ -25,15 +25,27 @@ Prettier, Cloudflare Workers, Even Better TOML, C/C++).
 # UI mockup
 cd mockup && npm run dev
 
-# Backend (local)
+# Backend (local dev — talks to a local Miniflare + D1)
 cd backend && npm install && npx wrangler d1 create feedme   # paste id into wrangler.toml
 npm run db:apply:local
-npm run dev
+npm run dev                                      # http://127.0.0.1:8787
 
-# Firmware — real board
+# Backend (deploy to Cloudflare — needed for the device to sync)
+cd backend && npm run db:apply:remote            # provision the D1 schema
+npm run deploy                                   # → https://feedme.<account>.workers.dev
+
+# Firmware — real board (offline mode: NoopNetwork)
 cd firmware && pio run -e esp32-s3-lcd-1_28      # build
 pio run -e esp32-s3-lcd-1_28 --target upload     # flash (USB-CDC, 921600)
+pio run -e esp32-s3-lcd-1_28 --target uploadfs   # flash cat PNGs to LittleFS (one-off
+                                                 # after running scripts/convert_cats.py)
 pio device monitor                               # serial monitor
+
+# Firmware — real board with backend sync (WifiNetwork)
+# Add to firmware/platformio.ini under [env:esp32-s3-lcd-1_28] build_flags:
+#   -DFEEDME_BACKEND_URL='"https://feedme.<account>.workers.dev"'
+#   -DFEEDME_HID='"home-4a7f"'
+# Both flags must be set; either empty falls back to NoopNetwork.
 ```
 
 VS Code task palette (`Ctrl+Shift+P → Tasks: Run Task`) covers all of the

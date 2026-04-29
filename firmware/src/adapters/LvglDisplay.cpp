@@ -105,9 +105,12 @@ void LvglDisplay::buildScene() {
     quietHoursEditView_.setQuiet(&quiet_);
     settingsView_.setRoster(&roster_);
     settingsView_.setUserRoster(&userRoster_);
+    settingsView_.setTimeZone(&tz_);
+    timezoneEditView_.setTimeZone(&tz_);
     catsListView_.setRoster(&roster_);
     catsListView_.setEditTarget(&catEditView_);
     catEditView_.setRoster(&roster_);
+    catRemoveView_.setRoster(&roster_);
     usersListView_.setRoster(&userRoster_);
     feedConfirmView_.setUserRoster(&userRoster_);
     feederPickerView_.setRoster(&userRoster_);
@@ -130,11 +133,13 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&settingsView_);
     screens_.registerView(&lockConfirmView_);
     screens_.registerView(&wakeTimeEditView_);
+    screens_.registerView(&timezoneEditView_);
     screens_.registerView(&quietHoursEditView_);
     screens_.registerView(&thresholdEditView_);
     screens_.registerView(&wifiResetView_);
     screens_.registerView(&catsListView_);
     screens_.registerView(&catEditView_);
+    screens_.registerView(&catRemoveView_);
     screens_.registerView(&usersListView_);
 #if defined(FEEDME_HAS_HOPPER)
     screens_.registerView(&hopperView_);

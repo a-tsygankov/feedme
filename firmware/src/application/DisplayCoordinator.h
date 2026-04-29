@@ -2,6 +2,7 @@
 
 #include "application/FeedingService.h"
 #include "domain/CatRoster.h"
+#include "domain/TimeZone.h"
 #include "ports/IClock.h"
 #include "ports/IDisplay.h"
 
@@ -20,7 +21,8 @@ public:
     DisplayCoordinator(feedme::ports::IDisplay& display,
                        FeedingService& feeding,
                        feedme::ports::IClock& clock,
-                       feedme::domain::CatRoster& roster);
+                       feedme::domain::CatRoster& roster,
+                       const feedme::domain::TimeZone& tz);
 
     // Call from loop(). Cheap; the display adapter diffs internally.
     void tick();
@@ -34,10 +36,11 @@ public:
     static constexpr int64_t MAX_THRESHOLD_SEC = 12 * 3600; // 12 hours
 
 private:
-    feedme::ports::IDisplay&     display_;
-    FeedingService&              feeding_;
-    feedme::ports::IClock&       clock_;
-    feedme::domain::CatRoster&   roster_;
+    feedme::ports::IDisplay&        display_;
+    FeedingService&                 feeding_;
+    feedme::ports::IClock&          clock_;
+    feedme::domain::CatRoster&      roster_;
+    const feedme::domain::TimeZone& tz_;
 };
 
 }  // namespace feedme::application

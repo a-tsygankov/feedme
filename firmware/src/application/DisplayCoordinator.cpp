@@ -11,11 +11,13 @@ namespace feedme::application {
 DisplayCoordinator::DisplayCoordinator(feedme::ports::IDisplay& display,
                                        FeedingService& feeding,
                                        feedme::ports::IClock& clock,
-                                       feedme::domain::CatRoster& roster)
+                                       feedme::domain::CatRoster& roster,
+                                       const feedme::domain::TimeZone& tz)
     : display_(display),
       feeding_(feeding),
       clock_(clock),
-      roster_(roster) {}
+      roster_(roster),
+      tz_(tz) {}
 
 int64_t DisplayCoordinator::adjustHungryThreshold(int64_t deltaSec) {
     int64_t v = roster_.activeThresholdSec() + deltaSec;
@@ -39,10 +41,14 @@ void DisplayCoordinator::tick() {
         ? -1
         : static_cast<int>((now - s.lastFeedTs) / 60);
 
-    // Wall-clock time for the Idle screen header. Modulo 86400 so the
-    // device shows a sensible time even before NTP syncs (clock falls
-    // back to millis/1000 in ArduinoClock — wraps every 24 h).
-    const int64_t secondsToday = ((now % 86400) + 86400) % 86400;
+    // Wall-clock time for the Idle screen header — local time per
+    // the configured TZ offset. All persisted timestamps stay UTC;
+    // we just shift for display + for the local-hour comparisons
+    // that ScheduleView / QuietView do against stored slot hours.
+    // Modulo 86400 keeps the value sensible even before NTP syncs
+    // (ArduinoClock falls back to millis/1000 — wraps every 24 h).
+    const int64_t local = now + tz_.offsetSec();
+    const int64_t secondsToday = ((local % 86400) + 86400) % 86400;
     frame.hour   = static_cast<int>(secondsToday / 3600);
     frame.minute = static_cast<int>((secondsToday % 3600) / 60);
 

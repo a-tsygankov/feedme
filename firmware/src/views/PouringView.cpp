@@ -120,10 +120,21 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
         // currentFeederName() returns the picker selection if one was
         // made (N≥2 path), or primaryName() as the silent N=1 fallback.
         const char* owner = users_ ? users_->currentFeederName() : "you";
-        // Active cat slot — events get attributed to whichever cat
-        // is currently selected on Idle.
-        const int catSlot = roster_ ? roster_->activeCatIdx() : 0;
-        if (feeding_) feeding_->logFeeding(owner, catSlot);
+        // FeedConfirm sets roster.feedSelection() before transitioning
+        // here: FEED_ALL = log every cat in the roster (default for
+        // multi-cat homes), or a specific slot index = log just that
+        // cat. Each cat's individual portion is honored via
+        // FeedingService → roster.at(slot).portion.
+        if (feeding_ && roster_) {
+            const int sel = roster_->feedSelection();
+            if (sel == feedme::domain::CatRoster::FEED_ALL) {
+                for (int i = 0; i < roster_->count(); ++i) {
+                    feeding_->logFeeding(owner, i);
+                }
+            } else if (sel >= 0 && sel < roster_->count()) {
+                feeding_->logFeeding(owner, sel);
+            }
+        }
         // Reset the transient picker selection so the next feed starts
         // fresh — devices are shared, no remembered "current user".
         if (users_) users_->clearCurrentFeeder();

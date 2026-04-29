@@ -24,13 +24,19 @@ public:
         return WiFi.status() == WL_CONNECTED;
 #endif
     }
-    std::optional<feedme::domain::FeedingState> fetchState() override {
-        return std::nullopt;
+    std::optional<feedme::domain::FeedingState>
+    fetchState(uint8_t /*catId*/) override { return std::nullopt; }
+    // Noop "succeeds" trivially — but report false so the drain logic
+    // doesn't think it landed and re-enqueues for when a real network
+    // comes online. (NoopNetwork on the simulator stays this way; on
+    // the real board, WifiNetwork is the active adapter.)
+    bool postFeed(const std::string&, int64_t, uint8_t /*catId*/) override {
+        return false;
     }
-    std::optional<feedme::domain::FeedingState>
-    postFeed(const std::string&, int64_t) override { return std::nullopt; }
-    std::optional<feedme::domain::FeedingState>
-    postSnooze(const std::string&, int64_t, int) override { return std::nullopt; }
+    bool postSnooze(const std::string&, int64_t, int,
+                    uint8_t /*catId*/) override {
+        return false;
+    }
 };
 
 }  // namespace feedme::adapters

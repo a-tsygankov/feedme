@@ -93,14 +93,24 @@ Output: persist to NVS, reboot into normal flow, attach to Wi-Fi, sync NTP.
 
 Goal: two CrowPanels in two kitchens, both seeing the same "last fed" state within 30 s.
 
-### 2.1 `WifiNetwork` adapter · ~3 h
+### 2.1 `WifiNetwork` adapter — **firmware-side ✅, deployment + per-cat pending**
 
-Replaces `NoopNetwork`. Implements `INetwork` against the existing [backend/src/index.ts](../backend/src/index.ts):
+Implemented in [adapters/WifiNetwork.{h,cpp}](../firmware/src/adapters/WifiNetwork.cpp). Talks to the existing [backend/src/index.ts](../backend/src/index.ts) over HTTPS via `WiFiClientSecure` + `setInsecure()` (cert pinning is a v1 follow-up).
 
-- `isOnline()` — bare `WiFi.isConnected()`.
-- `fetchState(hid)` — `GET https://<worker>/api/state?hid=<hid>`. Parse with ArduinoJson into `RemoteState{lastFeedTs, todayCount, snoozeUntilTs}`.
-- `postFeed(by, ts)` / `postSnooze(by, ts, durationSec)` — `POST /api/feed` with the body shape the worker expects. Carries `clientEventId` (UUID) for idempotency.
-- HTTPS with the Cloudflare cert pinned (or `setInsecure()` for v0 — accepted risk).
+Composition root in [main.cpp](../firmware/src/main.cpp) selects between `WifiNetwork` and `NoopNetwork` at compile time based on whether `FEEDME_BACKEND_URL` and `FEEDME_HID` build flags are both set. Defaults to NoopNetwork (link-state only) so existing builds work unchanged. Sample wiring lives in `[env:esp32-s3-lcd-1_28]` in [platformio.ini](../firmware/platformio.ini), commented out.
+
+**What this ships:**
+- `isOnline()` returns real `WiFi.status() == WL_CONNECTED`.
+- `fetchState()` hits `GET /api/state?hid=…` and parses the worker's `{ last, secondsSince, todayCount, now }` schema into a single-cat `FeedingState`.
+- `postFeed(by, ts)` / `postSnooze(by, ts, durationSec)` POST to `/api/feed` with `{hid, by, type}`.
+- ArduinoJson is already a project dep — no new libraries.
+
+**Pre-existing pieces still pending:**
+
+- **Deployment.** `wrangler.toml` still has `database_id = REPLACE_WITH_D1_ID`; nobody has run `wrangler d1 create feedme` + `npm run deploy` yet. Until then NoopNetwork is the only working option. Once deployed, set the two build flags and re-flash — no firmware code change.
+- **Per-cat sync.** `INetwork` signatures stayed single-cat for v0 to keep the change small. The backend has gained a `cat` column (default `'primary'`) so the schema is ready, but the firmware sends a single un-cat-tagged feed per `logFeeding` call. Per-cat extension means: extend `INetwork::fetchState/postFeed` with `catSlot`, route through `roster.at(catSlot).id`, plumb through `FeedingService::tick`. Roughly half a day.
+- **`clientEventId` for idempotency.** Not added in v0. Network retries can double-log; acceptable risk while no real households are running multi-device. Add UUID generation + server-side dedup before going past 1 device.
+- **Cert pinning.** `setInsecure()` accepted for v0; downgrade-to-MITM risk is theoretical for a Cloudflare-hosted worker.
 
 ### 2.2 Pending-queue drain · ~1 h
 - `FeedingService::tick()` already calls `network_.fetchState()` every 30 s. Wire it to *also* call `storage_.drainPending()` once after `network_.isOnline()` flips to true, replaying each event via `postFeed`/`postSnooze`.

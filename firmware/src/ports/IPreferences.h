@@ -74,6 +74,11 @@ public:
     virtual int  getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) = 0;
     virtual void setCatScheduleHour(int catSlot, int mealSlot, int value) = 0;
 
+    // Local timezone offset in minutes (signed). 0 = UTC. Storage
+    // unit matches TimeZone::offsetMin to round-trip cleanly.
+    virtual int  getTimeZoneOffsetMin(int defaultValue) = 0;
+    virtual void setTimeZoneOffsetMin(int value) = 0;
+
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may
     // use the same device (per handoff.md § "Entities…", clarified

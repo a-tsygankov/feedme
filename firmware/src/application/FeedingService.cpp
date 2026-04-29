@@ -27,21 +27,40 @@ void FeedingService::tick() {
         }
     }
 
-    // Network poll — for now NoopNetwork ignores the cat parameter and
-    // returns nothing. When WifiNetwork lands (Phase 2.1) it'll need a
-    // per-cat fetch endpoint; this is a placeholder hook.
+    // Pending-queue drain on offline → online edge. Events that were
+    // logged while offline accumulated in /pending.jsonl via
+    // storage_.enqueue; replay each through the network. Failed
+    // replays re-enqueue so the next online edge tries again. Silent
+    // by design — application/ stays Arduino-agnostic; if you need
+    // a breadcrumb, watch for [net] POST /api/feed lines.
+    const bool onlineNow = network_.isOnline();
+    if (onlineNow && !wasOnline_) {
+        auto pending = storage_.drainPending();
+        for (auto& ev : pending) {
+            const bool sent = (ev.type == "snooze")
+                ? network_.postSnooze(ev.by, ev.ts, /*durationSec=*/0, ev.cat)
+                : network_.postFeed(ev.by, ev.ts, ev.cat);
+            if (!sent) storage_.enqueue(ev);
+        }
+    }
+    wasOnline_ = onlineNow;
+
+    // Per-cat network poll. Every NETWORK_POLL_INTERVAL_SEC, walk the
+    // roster and fetch each cat's state from the backend. Each cat's
+    // state merges only if remote is at least as new (handles the
+    // "this device just fed → don't clobber with stale remote" case).
+    // Cost: N tiny HTTPS GETs per 30 s. Trivial at N≤4.
     if (network_.isOnline() &&
         now - lastNetworkPollSec_ >= NETWORK_POLL_INTERVAL_SEC) {
         lastNetworkPollSec_ = now;
-        if (auto fresh = network_.fetchState()) {
-            // Pre-multi-cat NoopNetwork returns a single FeedingState
-            // — assume slot 0. Once the network learns about cats it
-            // should emit per-cat snapshots and we'll route here.
-            if (roster_.count() > 0
-                && fresh->lastFeedTs >= states_[0].lastFeedTs) {
-                states_[0].lastFeedTs    = fresh->lastFeedTs;
-                states_[0].todayCount    = fresh->todayCount;
-                states_[0].snoozeUntilTs = fresh->snoozeUntilTs;
+        for (int slot = 0; slot < roster_.count(); ++slot) {
+            const uint8_t catId = roster_.at(slot).id;
+            if (auto fresh = network_.fetchState(catId)) {
+                if (fresh->lastFeedTs >= states_[slot].lastFeedTs) {
+                    states_[slot].lastFeedTs    = fresh->lastFeedTs;
+                    states_[slot].todayCount    = fresh->todayCount;
+                    states_[slot].snoozeUntilTs = fresh->snoozeUntilTs;
+                }
             }
         }
     }
@@ -64,7 +83,7 @@ void FeedingService::logFeeding(const char* by, int catSlot) {
     ev.cat  = roster_.at(catSlot).id;
     storage_.enqueue(ev);
     storage_.recordHistory(ev);
-    network_.postFeed(ev.by, now);
+    network_.postFeed(ev.by, now, ev.cat);
     appendHistory(now, "feed", by, ev.cat);
 }
 
@@ -80,7 +99,7 @@ void FeedingService::snooze(const char* by, int durationSec, int catSlot) {
     ev.cat  = roster_.at(catSlot).id;
     storage_.enqueue(ev);
     storage_.recordHistory(ev);
-    network_.postSnooze(ev.by, now, durationSec);
+    network_.postSnooze(ev.by, now, durationSec, ev.cat);
     appendHistory(now, "snooze", by, ev.cat);
 }
 
