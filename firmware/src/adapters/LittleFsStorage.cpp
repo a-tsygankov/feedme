@@ -18,6 +18,8 @@ void writeEventLine(File& f, const feedme::ports::PendingEvent& e) {
     doc["ts"]   = e.ts;
     doc["type"] = e.type;
     doc["by"]   = e.by;
+    doc["cat"]  = e.cat;  // stable Cat::id; 0 was the implicit default
+                          // pre-multi-cat — back-compat on read below.
     if (!e.clientEventId.empty()) doc["id"] = e.clientEventId;
     serializeJson(doc, f);
     f.write('\n');
@@ -29,6 +31,7 @@ bool parseEventLine(const String& line, feedme::ports::PendingEvent& out) {
     out.ts            = doc["ts"]   | 0;
     out.type          = (const char*)(doc["type"] | "");
     out.by            = (const char*)(doc["by"]   | "");
+    out.cat           = static_cast<uint8_t>(doc["cat"] | 0);
     out.clientEventId = (const char*)(doc["id"]   | "");
     return true;
 }

@@ -10,7 +10,14 @@ void ScreenManager::begin(lv_obj_t* parent) {
 }
 
 void ScreenManager::registerView(IView* view) {
-    if (viewCount_ >= MAX_VIEWS || view == nullptr) return;
+    if (view == nullptr) return;
+    if (viewCount_ >= MAX_VIEWS) {
+        // Silent drop is a debugging trap — Settings rows that pointed
+        // at the dropped views looked dead. Make this loud.
+        Serial.printf("[screen] registerView('%s') DROPPED — MAX_VIEWS=%d full\n",
+                      view->name() ? view->name() : "(null)", MAX_VIEWS);
+        return;
+    }
     views_[viewCount_++] = view;
     view->build(parent_);
     // Build leaves widgets hidden; current_ stays nullptr until first
@@ -55,7 +62,19 @@ void ScreenManager::render(const feedme::ports::DisplayFrame& frame) {
 
 const char* ScreenManager::handleInput(feedme::ports::TapEvent ev) {
     if (!current_) return nullptr;
-    return current_->handleInput(ev);
+    // Let the view claim the event first.
+    const char* result = current_->handleInput(ev);
+    if (result) return result;
+    // Fallback: long-press / long-touch is the universal "back up
+    // one level" gesture across the whole UI. Each view declares its
+    // parent via IView::parent() (default "idle"). Views that want
+    // long-press for something else (e.g. Pouring's cancel) can still
+    // override handleInput and return their own destination.
+    if (ev == feedme::ports::TapEvent::LongPress
+        || ev == feedme::ports::TapEvent::LongTouch) {
+        return current_->parent();
+    }
+    return nullptr;
 }
 
 }  // namespace feedme::views

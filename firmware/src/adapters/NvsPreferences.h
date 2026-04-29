@@ -43,6 +43,8 @@ public:
     void setCatPortion(int slot, int value) override;
     int64_t getCatThresholdSec(int slot, int64_t defaultValue) override;
     void    setCatThresholdSec(int slot, int64_t value) override;
+    int     getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) override;
+    void    setCatScheduleHour(int catSlot, int mealSlot, int value) override;
 
     int  getUserCount(int defaultValue) override;
     void setUserCount(int value) override;

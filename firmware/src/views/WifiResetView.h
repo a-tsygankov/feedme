@@ -24,7 +24,8 @@ public:
 
     void setOnConfirm(ResetCallback cb) { onConfirm_ = cb; }
 
-    const char* name() const override { return "wifiReset"; }
+    const char* name()   const override { return "wifiReset"; }
+    const char* parent() const override { return "settings"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

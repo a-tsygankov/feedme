@@ -23,6 +23,7 @@
 #include "views/PouringView.h"
 #include "views/QuietHoursEditView.h"
 #include "views/QuietView.h"
+#include "views/ScheduleEditView.h"
 #include "views/ScheduleView.h"
 #include "views/ScreenManager.h"
 #include "views/SettingsView.h"
@@ -109,8 +110,10 @@ private:
     feedme::views::FeederPickerView  feederPickerView_;
     feedme::views::PouringView       pouringView_;
     feedme::views::FedView           fedView_;
-    // Phase C.2 — read-only Schedule.
+    // Phase C.2 — read-only Schedule + the Phase D add-on editor
+    // for the active cat's slot hours.
     feedme::views::ScheduleView      scheduleView_;
+    feedme::views::ScheduleEditView  scheduleEditView_;
     // Phase C.3 — Quiet hours toggle.
     feedme::views::QuietView         quietView_;
     // Phase C.4 — Settings list (sub-editors land in Phase D).
@@ -157,10 +160,12 @@ private:
     CatFace   cat_;
 
     // History overlay panel (hidden by default).
+    static constexpr uint32_t HISTORY_AUTO_DISMISS_MS = 10000;
     lv_obj_t* historyPanel_         = nullptr;
     lv_obj_t* historyTitle_         = nullptr;
     lv_obj_t* historyLines_[HISTORY_MAX] = {nullptr};
     bool      historyVisible_       = false;
+    uint32_t  historyShownMs_       = 0;
 
     void buildScene();
     void buildHistoryOverlay();

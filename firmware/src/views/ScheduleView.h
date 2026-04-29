@@ -24,7 +24,8 @@ public:
         roster_ = roster;
     }
 
-    const char* name() const override { return "schedule"; }
+    const char* name()   const override { return "schedule"; }
+    const char* parent() const override { return "menu"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

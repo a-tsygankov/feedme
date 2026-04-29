@@ -38,6 +38,13 @@ public:
     // Default: never. Used by Pouring (→ Fed on animation complete) and
     // Fed (→ Idle on auto-dismiss).
     virtual const char* nextView() { return nullptr; }
+
+    // Parent view for the universal "back up one level" gesture
+    // (long-press / long-touch, intercepted by the dispatcher in
+    // main.cpp). Default: "idle" — root. Each view that lives below
+    // root overrides this with its actual parent so back chains
+    // cleanly: e.g., CatEdit → CatsList → Settings → Menu → Idle.
+    virtual const char* parent() const { return "idle"; }
 };
 
 }  // namespace feedme::views

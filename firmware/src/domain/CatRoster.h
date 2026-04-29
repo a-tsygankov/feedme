@@ -53,6 +53,18 @@ public:
     const Cat& at(int i) const { return cats_[i]; }
     Cat&       at(int i)       { return cats_[i]; }
 
+    // Stable id → slot lookup. Used by FeedingService to route events
+    // (which carry Cat::id, not slot index) into the right per-cat
+    // FeedingState. Returns -1 if no cat with that id exists; callers
+    // should treat that as "fall back to slot 0" for events from a
+    // pre-multi-cat era.
+    int findSlotById(uint8_t id) const {
+        for (int i = 0; i < count_; ++i) {
+            if (cats_[i].id == id) return i;
+        }
+        return -1;
+    }
+
     // Active cat — the one whose per-cat tunables (portion, schedule,
     // threshold) are currently routed into the views. Today defaults
     // to slot 0; when a cat-selector lands (planned: long-rotate from
@@ -80,6 +92,14 @@ public:
         if (active().hungryThresholdSec == v) return;
         active().hungryThresholdSec = v;
         dirty_ = true;
+    }
+    // Schedule slot-hour mutator — same pattern: wraps via MealSchedule
+    // and marks the roster dirty if the value actually changed.
+    void setActiveSlotHour(int slot, int hour) {
+        if (active().schedule.setSlotHour(slot, hour)) dirty_ = true;
+    }
+    void bumpActiveSlotHour(int slot, int delta) {
+        if (active().schedule.bumpSlotHour(slot, delta)) dirty_ = true;
     }
 
     // Add a new cat with auto-assigned id (max id seen + 1) and default

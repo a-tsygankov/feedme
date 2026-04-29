@@ -20,7 +20,8 @@ class WakeTimeEditView : public IView {
 public:
     void setWakeTime(feedme::domain::WakeTime* wake) { wake_ = wake; }
 
-    const char* name() const override { return "wakeTimeEdit"; }
+    const char* name()   const override { return "wakeTimeEdit"; }
+    const char* parent() const override { return "settings"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

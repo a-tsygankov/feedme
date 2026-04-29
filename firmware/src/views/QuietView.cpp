@@ -207,9 +207,7 @@ const char* QuietView::handleInput(feedme::ports::TapEvent ev) {
         case E::Press:
             quiet_->toggle();
             return nullptr;
-        case E::LongPress:
-        case E::LongTouch:
-            return "menu";
+        // Long-press / long-touch → ScreenManager fallback to parent().
         default:
             return nullptr;
     }

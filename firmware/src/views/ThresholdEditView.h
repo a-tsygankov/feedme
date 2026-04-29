@@ -21,7 +21,8 @@ public:
 
     void setCoordinator(feedme::application::DisplayCoordinator* c) { coord_ = c; }
 
-    const char* name() const override { return "thresholdEdit"; }
+    const char* name()   const override { return "thresholdEdit"; }
+    const char* parent() const override { return "settings"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

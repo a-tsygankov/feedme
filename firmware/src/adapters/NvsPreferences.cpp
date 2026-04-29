@@ -139,6 +139,24 @@ void NvsPreferences::setCatThresholdSec(int slot, int64_t v) {
     prefs_.putLong64(k, v);
 }
 
+namespace {
+// "csch{cat}_{meal}" — fits in NVS's 15-char key limit (max 9 chars).
+void formatScheduleKey(char* out, int outLen, int catSlot, int mealSlot) {
+    snprintf(out, outLen, "csch%d_%d", catSlot, mealSlot);
+}
+}  // namespace
+
+int NvsPreferences::getCatScheduleHour(int c, int m, int d) {
+    if (!ready_) return d;
+    char k[12]; formatScheduleKey(k, sizeof(k), c, m);
+    return prefs_.getInt(k, d);
+}
+void NvsPreferences::setCatScheduleHour(int c, int m, int v) {
+    if (!ready_) return;
+    char k[12]; formatScheduleKey(k, sizeof(k), c, m);
+    prefs_.putInt(k, v);
+}
+
 int  NvsPreferences::getUserCount(int d) { return ready_ ? prefs_.getInt(KEY_USER_COUNT, d) : d; }
 void NvsPreferences::setUserCount(int v) { if (ready_) prefs_.putInt(KEY_USER_COUNT, v); }
 

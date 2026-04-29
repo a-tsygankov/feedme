@@ -69,6 +69,10 @@ public:
     // first boot.
     virtual int64_t getCatThresholdSec(int slot, int64_t defaultValue) = 0;
     virtual void    setCatThresholdSec(int slot, int64_t value) = 0;
+    // Per-cat per-meal-slot schedule hour (0..23). 4 meal slots per
+    // cat (Breakfast / Lunch / Dinner / Treat).
+    virtual int  getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) = 0;
+    virtual void setCatScheduleHour(int catSlot, int mealSlot, int value) = 0;
 
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may

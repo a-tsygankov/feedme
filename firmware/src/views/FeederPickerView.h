@@ -22,7 +22,8 @@ public:
 
     void setRoster(feedme::domain::UserRoster* roster) { roster_ = roster; }
 
-    const char* name() const override { return "feederPick"; }
+    const char* name()   const override { return "feederPick"; }
+    const char* parent() const override { return "feedConfirm"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

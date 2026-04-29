@@ -17,9 +17,15 @@ constexpr int PIN_RST = 13;
 constexpr int PIN_INT = 5;
 
 // Gesture timing thresholds (milliseconds).
-constexpr uint32_t LONG_TOUCH_MS    = 600;  // touches held longer than this
-                                            // are ignored (use the physical
-                                            // button for long-press / snooze)
+//
+// Bumped from 600 → 1200 because the CST816D on this CrowPanel
+// variant appears to hold "finger present" in its register for
+// several hundred ms after the user actually lifts off — at 600 ms
+// nearly every quick tap was being mis-classified as a long-touch
+// (which then triggered the LockConfirm gate and bounced back). 1200
+// gives natural taps a comfortable margin while keeping deliberate
+// long-touches (1.2 s+) as a usable cancel/parental gesture.
+constexpr uint32_t LONG_TOUCH_MS    = 1200;
 constexpr uint32_t DOUBLE_TAP_MS    = 300;  // two taps within this -> DoubleTap
 constexpr uint32_t POLL_INTERVAL_MS = 20;   // I²C read cadence; ~50 Hz
 

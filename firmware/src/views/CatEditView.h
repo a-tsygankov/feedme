@@ -22,7 +22,8 @@ public:
     void setRoster(feedme::domain::CatRoster* roster) { roster_ = roster; }
     void setEditingCatIndex(int catIdx) { catIdx_ = catIdx; }
 
-    const char* name() const override { return "catEdit"; }
+    const char* name()   const override { return "catEdit"; }
+    const char* parent() const override { return "catsList"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;
