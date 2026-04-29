@@ -266,6 +266,10 @@ void setup() {
             wifiNetwork.setHid(nvsHid);
         }
     }
+    // Give WifiNetwork a live reference to the TimeZone so each
+    // /api/state poll appends the user's offset. Backend uses it
+    // for the local-day boundary on todayCount.
+    wifiNetwork.setTimeZone(&display.timezone());
 #  endif
 #endif
 

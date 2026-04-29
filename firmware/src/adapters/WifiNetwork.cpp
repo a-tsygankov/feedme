@@ -85,7 +85,13 @@ WifiNetwork::fetchState(uint8_t catId) {
 
     char catBuf[8];
     snprintf(catBuf, sizeof(catBuf), "%u", static_cast<unsigned>(catId));
-    const std::string url = baseUrl_ + "/api/state?hid=" + hid_ + "&cat=" + catBuf;
+    std::string url = baseUrl_ + "/api/state?hid=" + hid_ + "&cat=" + catBuf;
+    if (tz_) {
+        char tzBuf[8];
+        snprintf(tzBuf, sizeof(tzBuf), "%d", tz_->offsetMin());
+        url += "&tzOffset=";
+        url += tzBuf;
+    }
     if (!http.begin(client, url.c_str())) return std::nullopt;
 
     const int code = http.GET();

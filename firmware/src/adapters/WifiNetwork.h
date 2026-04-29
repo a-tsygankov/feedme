@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/TimeZone.h"
 #include "ports/INetwork.h"
 
 #include <string>
@@ -39,6 +40,14 @@ public:
     // creds. Empty string disables fetch/post (treats as offline).
     void setHid(const char* hid);
 
+    // Optional TimeZone reference. When set, fetchState appends
+    // `&tzOffset=N` to the GET URL so the backend rolls "today" over
+    // at local midnight instead of UTC. Read live so changes via the
+    // Settings → Timezone editor take effect on the next poll
+    // without a re-flash. Null → omit the param (backend defaults
+    // to UTC).
+    void setTimeZone(const feedme::domain::TimeZone* tz) { tz_ = tz; }
+
     void begin() override;
     bool isOnline() const override;
     std::optional<feedme::domain::FeedingState>
@@ -55,6 +64,7 @@ private:
 
     std::string baseUrl_;   // no trailing slash
     std::string hid_;
+    const feedme::domain::TimeZone* tz_ = nullptr;
 };
 
 }  // namespace feedme::adapters

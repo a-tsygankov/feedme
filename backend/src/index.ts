@@ -34,6 +34,21 @@ const startOfTodayUtc = (now: number) => {
   return Math.floor(d.getTime() / 1000);
 };
 
+// "Today" boundary in UTC seconds, but rolled over at the *local*
+// midnight of the device's timezone. Math: shift utcNow by the
+// offset to get localNow, floor to local midnight, then shift back
+// by the same offset to land on the UTC ts cutoff that filter on
+// `events.ts >= cutoff` selects today-local feeds.
+//
+// `tzOffsetSec` matches the firmware's TimeZone::offsetSec — signed
+// seconds east of UTC. Defaults to 0 (UTC) for back-compat with
+// pre-tz clients.
+const startOfLocalDayInUtc = (utcNow: number, tzOffsetSec: number) => {
+  const localNow = utcNow + tzOffsetSec;
+  const localDayStart = localNow - ((localNow % 86400) + 86400) % 86400;
+  return localDayStart - tzOffsetSec;
+};
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -55,6 +70,16 @@ export default {
       // for single-cat households + back-compat for pre-multi-cat
       // clients that don't send the field).
       const cat = url.searchParams.get("cat") ?? "primary";
+      // Optional timezone offset in MINUTES from UTC, signed
+      // (matches firmware TimeZone::offsetMin). Used for the
+      // `todayCount` boundary so the count rolls over at local
+      // midnight, not UTC midnight. Omitted or unparseable → 0
+      // (UTC); back-compat with pre-tz clients.
+      const tzOffsetMinRaw = url.searchParams.get("tzOffset");
+      const tzOffsetMin = tzOffsetMinRaw !== null && !isNaN(Number(tzOffsetMinRaw))
+        ? Number(tzOffsetMinRaw)
+        : 0;
+      const tzOffsetSec = tzOffsetMin * 60;
 
       const last = await env.DB.prepare(
         "SELECT ts, type, by FROM events WHERE hid = ? AND cat = ? ORDER BY ts DESC LIMIT 1",
@@ -63,7 +88,7 @@ export default {
         .first<{ ts: number; type: string; by: string }>();
 
       const now = Math.floor(Date.now() / 1000);
-      const todayStart = startOfTodayUtc(now);
+      const todayStart = startOfLocalDayInUtc(now, tzOffsetSec);
       const countRow = await env.DB.prepare(
         "SELECT COUNT(*) AS c FROM events WHERE hid = ? AND cat = ? AND type = 'feed' AND ts >= ?",
       )
@@ -75,6 +100,7 @@ export default {
         secondsSince: last ? now - last.ts : null,
         todayCount: countRow?.c ?? 0,
         cat,
+        tzOffsetMin,
         now,
       });
     }
