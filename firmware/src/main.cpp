@@ -26,6 +26,7 @@
 #include "adapters/NoopNetwork.h"
 #include "adapters/SimulatedClock.h"
 #if !defined(SIMULATOR)
+#  include "adapters/WifiCaptivePortal.h"
 #  include "adapters/WifiNetwork.h"
 #endif
 #include "application/DisplayCoordinator.h"
@@ -67,11 +68,16 @@ feedme::ports::IClock& appClock = realClock;
 
 feedme::adapters::LvglDisplay display;
 
-// Network adapter: WifiNetwork against the Cloudflare Worker when both
-// FEEDME_BACKEND_URL and FEEDME_HID build flags are set, otherwise
-// NoopNetwork (link-state only, no fetch/post). The polymorphic
-// `network` reference fronts whichever was instantiated.
-#if !defined(SIMULATOR) && defined(FEEDME_BACKEND_URL) && defined(FEEDME_HID)
+// Network adapter: WifiNetwork against the Cloudflare Worker when
+// FEEDME_BACKEND_URL is set; otherwise NoopNetwork (link-state only,
+// no fetch/post). The hid is set at boot from NVS (captured by the
+// captive portal) or — if NVS is empty — from the FEEDME_HID build
+// flag fallback. WifiNetwork's hid_ starts empty if neither source
+// has it, in which case fetchState/postFeed early-return.
+#if !defined(SIMULATOR) && defined(FEEDME_BACKEND_URL)
+#  if !defined(FEEDME_HID)
+#    define FEEDME_HID ""
+#  endif
 feedme::adapters::WifiNetwork wifiNetwork(FEEDME_BACKEND_URL, FEEDME_HID);
 feedme::ports::INetwork&      network = wifiNetwork;
 #else
@@ -99,20 +105,20 @@ constexpr uint32_t LED_SNOOZE_COLOR  = 0x6644FF;  // purple
 constexpr uint32_t LED_HISTORY_COLOR = 0x00AAFF;  // cyan
 
 #if !defined(SIMULATOR)
-// Bring up Wi-Fi (using build-flag credentials from wifi_credentials.h)
-// and request an SNTP sync. Blocks up to ~15 s for association +
-// up to ~5 s for the first NTP packet. Best-effort — failures are
-// logged and the firmware continues; ArduinoClock falls back to
-// millis()/1000 if time(nullptr) never crosses 2020.
-void connectWifiAndSyncTime() {
-    if (WIFI_SSID[0] == '\0') {
-        Serial.println("[wifi] no credentials provided — skipping "
-                       "(see firmware/include/wifi_credentials.h.example)");
+feedme::adapters::WifiCaptivePortal captivePortal;
+
+// Bring up Wi-Fi using the supplied creds and request an SNTP sync.
+// Blocks up to ~15 s for association + ~5 s for the first NTP packet.
+// Best-effort — failures are logged and the firmware continues;
+// ArduinoClock falls back to millis()/1000 if time never crosses 2020.
+void connectWifiAndSyncTime(const char* ssid, const char* pass) {
+    if (!ssid || ssid[0] == '\0') {
+        Serial.println("[wifi] no credentials — skipping connect");
         return;
     }
-    Serial.printf("[wifi] connecting to '%s'...\n", WIFI_SSID);
+    Serial.printf("[wifi] connecting to '%s'...\n", ssid);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.begin(ssid, pass ? pass : "");
 
     const uint32_t assocDeadline = millis() + 15000;
     while (WiFi.status() != WL_CONNECTED && millis() < assocDeadline) {
@@ -125,7 +131,7 @@ void connectWifiAndSyncTime() {
     Serial.printf("[wifi] connected, ip=%s rssi=%d\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
 
-    // SNTP. UTC; the cat doesn't care about TZ.
+    // SNTP. UTC; TimeZone offset shifts to local for display only.
     configTime(0, 0, "pool.ntp.org", "time.google.com");
     const uint32_t ntpDeadline = millis() + 5000;
     while (time(nullptr) < 1577836800 && millis() < ntpDeadline) {
@@ -138,6 +144,30 @@ void connectWifiAndSyncTime() {
     } else {
         Serial.println("[ntp] sync timeout — continuing without real time");
     }
+}
+
+// Runs the captive-portal setup loop until the user submits the form.
+// Then writes captured creds to NVS (already done inside the portal)
+// and reboots so the next boot picks up the saved creds in STA mode.
+// This function never returns.
+[[noreturn]] void runCaptivePortalAndReboot() {
+    captivePortal.begin(prefs);
+    display.setupView().setApName(captivePortal.apName());
+    display.setupView().setUrl   (captivePortal.apIp());
+    display.transitionTo("setup");
+
+    Serial.printf("[setup] portal active — connect to '%s' then open http://%s\n",
+                  captivePortal.apName(), captivePortal.apIp());
+
+    while (!captivePortal.isComplete()) {
+        captivePortal.handle();
+        display.tick();   // pump LVGL so SetupView stays responsive
+        delay(2);
+    }
+
+    Serial.println("[setup] saved — rebooting");
+    delay(500);  // give the HTTP "saved" response a chance to flush
+    ESP.restart();
 }
 #endif
 
@@ -200,12 +230,46 @@ void setup() {
     display.begin();
     Serial.println("[feedme] display ready");
 
+    // Prefs must come up before the Wi-Fi decision so we can read
+    // captured-from-portal credentials.
+    prefs.begin();
+
 #if !defined(SIMULATOR)
-    connectWifiAndSyncTime();
+    {
+        // Boot decision: NVS creds → STA. If NVS is empty AND a
+        // build-flag fallback exists (dev convenience for keeping
+        // wifi_credentials.h working) → STA with that. Otherwise
+        // captive portal (never returns; reboots after submit).
+        char nvsSsid[32]{};
+        char nvsPass[64]{};
+        const bool haveNvsSsid = prefs.getWifiSsid(nvsSsid, sizeof(nvsSsid))
+                                 && nvsSsid[0] != '\0';
+        if (haveNvsSsid) {
+            prefs.getWifiPass(nvsPass, sizeof(nvsPass));
+            connectWifiAndSyncTime(nvsSsid, nvsPass);
+        } else if (WIFI_SSID[0] != '\0') {
+            Serial.println("[setup] no NVS Wi-Fi creds — using build flag");
+            connectWifiAndSyncTime(WIFI_SSID, WIFI_PASS);
+        } else {
+            Serial.println("[setup] no Wi-Fi creds anywhere — captive portal");
+            runCaptivePortalAndReboot();   // never returns
+        }
+    }
+
+#  if defined(FEEDME_BACKEND_URL)
+    // Override WifiNetwork's hid with the NVS value if one was
+    // captured at setup. Falls back to the build-flag default
+    // already in the constructor.
+    {
+        char nvsHid[32]{};
+        if (prefs.getHid(nvsHid, sizeof(nvsHid)) && nvsHid[0] != '\0') {
+            wifiNetwork.setHid(nvsHid);
+        }
+    }
+#  endif
 #endif
 
     network.begin();
-    prefs.begin();
     // (DisplayCoordinator::loadPreferences removed — threshold is now
     // per-cat and seeded inside the roster load block below.)
     // Wire FeedingService into PouringView so a completed pour logs
@@ -318,12 +382,12 @@ void setup() {
     display.thresholdEditView().setCoordinator(&displayCoord);
     display.lockConfirmView().setSensors(&taps, &button);
     display.wifiResetView().setOnConfirm(+[]() {
-        // No persisted Wi-Fi creds in NVS yet — captive portal (roadmap
-        // Phase 2.4) is what will start storing them and what real
-        // "reset" will need to clear. For now Reset just reboots so the
-        // device re-runs setup() (and re-reads wifi_credentials.h).
+        // Clear stored Wi-Fi creds + hid so next boot lands in the
+        // captive-portal setup mode (the only escape hatch unless a
+        // build-flag fallback is also set).
 #if !defined(SIMULATOR)
-        Serial.println("[wifi] reset → ESP.restart()");
+        prefs.clearWifiCreds();
+        Serial.println("[wifi] reset — NVS creds cleared, restarting");
         delay(100);          // let the print drain over USB-CDC
         ESP.restart();
 #else

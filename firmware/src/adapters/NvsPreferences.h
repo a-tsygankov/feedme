@@ -56,6 +56,14 @@ public:
     bool getUserName (int slot, char* buf, int bufLen) override;
     void setUserName (int slot, const char* value) override;
 
+    bool getWifiSsid(char* buf, int bufLen) override;
+    void setWifiSsid(const char* value) override;
+    bool getWifiPass(char* buf, int bufLen) override;
+    void setWifiPass(const char* value) override;
+    bool getHid     (char* buf, int bufLen) override;
+    void setHid     (const char* value) override;
+    void clearWifiCreds() override;
+
 private:
     ::Preferences prefs_;
     bool          ready_ = false;
@@ -75,6 +83,10 @@ private:
     static constexpr const char* KEY_CAT_COUNT        = "catN";
     static constexpr const char* KEY_USER_COUNT       = "userN";
     static constexpr const char* KEY_TZ_OFFSET_MIN    = "tzMin";
+    // Wi-Fi creds + household id — Phase 2.4 captive portal.
+    static constexpr const char* KEY_WIFI_SSID        = "wSsid";
+    static constexpr const char* KEY_WIFI_PASS        = "wPass";
+    static constexpr const char* KEY_HID              = "hid";
 };
 
 }  // namespace feedme::adapters

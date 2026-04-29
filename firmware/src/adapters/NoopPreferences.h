@@ -147,6 +147,16 @@ public:
         userNameSet_[slot] = true;
     }
 
+    // Wi-Fi creds — sim is never online so always "not set". Captive
+    // portal logic on real hardware uses the NvsPreferences impl.
+    bool getWifiSsid(char*, int) override { return false; }
+    void setWifiSsid(const char*) override {}
+    bool getWifiPass(char*, int) override { return false; }
+    void setWifiPass(const char*) override {}
+    bool getHid     (char*, int) override { return false; }
+    void setHid     (const char*) override {}
+    void clearWifiCreds() override {}
+
 private:
     int64_t threshold_     = 0;
     int     portion_       = 0;

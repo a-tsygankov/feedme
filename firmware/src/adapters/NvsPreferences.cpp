@@ -184,4 +184,35 @@ void NvsPreferences::setUserName(int slot, const char* value) {
     prefs_.putString(k, value);
 }
 
+bool NvsPreferences::getWifiSsid(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_WIFI_SSID, buf, bufLen) > 0;
+}
+void NvsPreferences::setWifiSsid(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_WIFI_SSID, value);
+}
+bool NvsPreferences::getWifiPass(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_WIFI_PASS, buf, bufLen) > 0;
+}
+void NvsPreferences::setWifiPass(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_WIFI_PASS, value);
+}
+bool NvsPreferences::getHid(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_HID, buf, bufLen) > 0;
+}
+void NvsPreferences::setHid(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_HID, value);
+}
+void NvsPreferences::clearWifiCreds() {
+    if (!ready_) return;
+    prefs_.remove(KEY_WIFI_SSID);
+    prefs_.remove(KEY_WIFI_PASS);
+    prefs_.remove(KEY_HID);
+}
+
 }  // namespace feedme::adapters

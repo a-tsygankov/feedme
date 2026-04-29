@@ -61,6 +61,11 @@ std::optional<feedme::domain::FeedingState> parseStateJson(const String& body) {
 WifiNetwork::WifiNetwork(const char* baseUrl, const char* hid)
     : baseUrl_(normalizeBase(baseUrl)), hid_(hid ? hid : "") {}
 
+void WifiNetwork::setHid(const char* hid) {
+    hid_ = hid ? hid : "";
+    Serial.printf("[net] WifiNetwork hid -> '%s'\n", hid_.c_str());
+}
+
 void WifiNetwork::begin() {
     Serial.printf("[net] WifiNetwork base='%s' hid='%s'\n",
                   baseUrl_.c_str(), hid_.c_str());

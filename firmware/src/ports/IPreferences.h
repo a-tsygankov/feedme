@@ -91,6 +91,22 @@ public:
     virtual void setUserId   (int slot, int value) = 0;
     virtual bool getUserName (int slot, char* buf, int bufLen) = 0;
     virtual void setUserName (int slot, const char* value) = 0;
+
+    // Wi-Fi credentials + household id. Captive portal (Phase 2.4)
+    // captures these at first-time setup and stores them here. Empty
+    // SSID is the "no creds yet" sentinel — boot path uses it to
+    // pick between STA mode and captive-portal setup mode. Strings:
+    // caller passes a buffer; adapter copies up to bufLen (incl. NUL).
+    // Returns true if a stored value was found.
+    virtual bool getWifiSsid(char* buf, int bufLen) = 0;
+    virtual void setWifiSsid(const char* value) = 0;
+    virtual bool getWifiPass(char* buf, int bufLen) = 0;
+    virtual void setWifiPass(const char* value) = 0;
+    virtual bool getHid     (char* buf, int bufLen) = 0;
+    virtual void setHid     (const char* value) = 0;
+    // Drops Wi-Fi creds + hid in one shot — used by Wi-Fi reset to
+    // force the next boot into captive-portal setup mode.
+    virtual void clearWifiCreds() = 0;
 };
 
 }  // namespace feedme::ports

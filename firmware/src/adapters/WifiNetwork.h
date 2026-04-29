@@ -34,6 +34,11 @@ class WifiNetwork : public feedme::ports::INetwork {
 public:
     WifiNetwork(const char* baseUrl, const char* hid);
 
+    // Replace hid at runtime — used after captive-portal setup or
+    // NVS load when the build-flag value is overridden by stored
+    // creds. Empty string disables fetch/post (treats as offline).
+    void setHid(const char* hid);
+
     void begin() override;
     bool isOnline() const override;
     std::optional<feedme::domain::FeedingState>
