@@ -46,6 +46,9 @@ public:
     int     getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) override;
     void    setCatScheduleHour(int catSlot, int mealSlot, int value) override;
 
+    int  getTimeZoneOffsetMin(int defaultValue) override;
+    void setTimeZoneOffsetMin(int value) override;
+
     int  getUserCount(int defaultValue) override;
     void setUserCount(int value) override;
     int  getUserId   (int slot, int defaultValue) override;
@@ -71,6 +74,7 @@ private:
     // catSlotKey(prefix, slot) since NVS keys must be ≤15 chars.
     static constexpr const char* KEY_CAT_COUNT        = "catN";
     static constexpr const char* KEY_USER_COUNT       = "userN";
+    static constexpr const char* KEY_TZ_OFFSET_MIN    = "tzMin";
 };
 
 }  // namespace feedme::adapters

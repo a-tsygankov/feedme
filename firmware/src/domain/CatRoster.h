@@ -102,9 +102,55 @@ public:
         if (active().schedule.bumpSlotHour(slot, delta)) dirty_ = true;
     }
 
+    // Transient per-feed-flow selection — what the next pour will
+    // feed. FEED_ALL = -1 → every cat in the roster (default for N>=2);
+    // 0..N-1 → only that cat (the "feed separately" path). Set by
+    // FeedConfirmView before transition to Pouring; consumed by
+    // PouringView in onComplete to drive how many logFeeding calls
+    // happen. Not persisted.
+    static constexpr int FEED_ALL = -1;
+    int  feedSelection() const { return feedSelection_; }
+    void setFeedSelection(int slotOrAll) {
+        if (slotOrAll == FEED_ALL || (slotOrAll >= 0 && slotOrAll < count_)) {
+            feedSelection_ = slotOrAll;
+        }
+    }
+
     // Add a new cat with auto-assigned id (max id seen + 1) and default
     // name/slug. Returns the index of the newly-added cat, or -1 if the
     // roster is full.
+    // Remove the cat at `slot`. Refuses when count_ <= 1 (preserves
+    // the N>=1 invariant from handoff.md) — single-cat households
+    // can't delete their only cat. Returns true if the remove went
+    // through.
+    //
+    // The cat's stable id (Cat::id) is NOT reused — `nextId_` keeps
+    // climbing — so any persisted events that reference it stay
+    // unambiguous in the backend / LittleFS history. UI lookups by id
+    // (e.g. history overlay) will fail to find the deleted cat in the
+    // roster and fall back to no-name display, which is the right
+    // behaviour for "this event is from a cat that no longer exists".
+    //
+    // Slot indices renumber after removal — cats above `slot` shift
+    // down. Persistence layer re-writes slot 0..count-1; stale higher
+    // slots in NVS aren't cleared but are ignored on load (only
+    // count_ slots are read).
+    bool remove(int slot) {
+        if (slot < 0 || slot >= count_) return false;
+        if (count_ <= 1) return false;  // refuse last cat
+        for (int i = slot; i < count_ - 1; ++i) {
+            cats_[i] = cats_[i + 1];
+        }
+        --count_;
+        // Default-construct the now-vacated tail slot so leftover
+        // PortionState dirty flags etc. don't bleed into a future add().
+        cats_[count_] = Cat{};
+        if (activeCatIdx_ >= count_) activeCatIdx_ = count_ - 1;
+        if (feedSelection_ >= count_) feedSelection_ = FEED_ALL;
+        dirty_ = true;
+        return true;
+    }
+
     int add() {
         if (count_ >= MAX_CATS) return -1;
         Cat& c = cats_[count_];
@@ -187,10 +233,11 @@ public:
 
 private:
     Cat     cats_[MAX_CATS]{};
-    int     count_        = 0;
-    uint8_t nextId_       = 0;
-    int     activeCatIdx_ = 0;
-    bool    dirty_        = false;
+    int     count_         = 0;
+    uint8_t nextId_        = 0;
+    int     activeCatIdx_  = 0;
+    int     feedSelection_ = -1;  // FEED_ALL by default (N>=2)
+    bool    dirty_         = false;
 };
 
 }  // namespace feedme::domain

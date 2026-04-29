@@ -2,6 +2,7 @@
 
 #include "domain/CatRoster.h"
 #include "domain/QuietWindow.h"
+#include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
 #include "domain/WakeTime.h"
 #include "ports/INetwork.h"
@@ -25,13 +26,14 @@ namespace feedme::views {
 // without the editors.
 class SettingsView : public IView {
 public:
-    static constexpr int ITEM_COUNT = 6;  // Wi-Fi, Wake, Quiet, Threshold, Cats, Users
+    static constexpr int ITEM_COUNT = 7;  // Wi-Fi, Wake, Quiet, Threshold, Cats, Users, Timezone
 
     void setNetwork(const feedme::ports::INetwork* network) { network_ = network; }
     void setQuiet  (const feedme::domain::QuietWindow* quiet) { quiet_ = quiet; }
     void setWake   (const feedme::domain::WakeTime* wake) { wake_ = wake; }
     void setRoster     (const feedme::domain::CatRoster* roster) { roster_ = roster; }
     void setUserRoster (const feedme::domain::UserRoster* roster) { userRoster_ = roster; }
+    void setTimeZone   (const feedme::domain::TimeZone* tz) { tz_ = tz; }
     void setCoordinator(const feedme::application::DisplayCoordinator* c) { coord_ = c; }
 
     const char* name()   const override { return "settings"; }
@@ -50,6 +52,7 @@ private:
     const feedme::domain::WakeTime*                  wake_    = nullptr;
     const feedme::domain::CatRoster*                 roster_     = nullptr;
     const feedme::domain::UserRoster*                userRoster_ = nullptr;
+    const feedme::domain::TimeZone*                  tz_         = nullptr;
     const feedme::application::DisplayCoordinator*   coord_      = nullptr;
 
     lv_obj_t* root_                          = nullptr;
@@ -68,6 +71,7 @@ private:
     long lastDrawnThresholdSec_ = -1;
     int  lastDrawnCatCount_     = -1;
     int  lastDrawnUserCount_    = -1;
+    int  lastDrawnTzMin_        = -99999;
     bool firstRender_         = true;
 };
 

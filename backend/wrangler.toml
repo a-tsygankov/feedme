@@ -6,4 +6,4 @@ compatibility_date = "2026-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "feedme"
-database_id = "REPLACE_WITH_D1_ID"
+database_id = "646b2354-0a20-4aca-91d7-a80d532901cb"

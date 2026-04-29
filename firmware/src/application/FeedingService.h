@@ -78,6 +78,7 @@ private:
     std::array<int64_t,
                feedme::domain::CatRoster::MAX_CATS> justFedClearAt_{};
     int64_t lastNetworkPollSec_ = 0;
+    bool    wasOnline_          = false;  // for offline→online edge detection
 
     // Ring buffer of the last HISTORY_CAPACITY events. `historyHead_`
     // points at the slot the *next* event will go into; `historyCount_`

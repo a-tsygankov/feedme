@@ -157,6 +157,9 @@ void NvsPreferences::setCatScheduleHour(int c, int m, int v) {
     prefs_.putInt(k, v);
 }
 
+int  NvsPreferences::getTimeZoneOffsetMin(int d) { return ready_ ? prefs_.getInt(KEY_TZ_OFFSET_MIN, d) : d; }
+void NvsPreferences::setTimeZoneOffsetMin(int v) { if (ready_) prefs_.putInt(KEY_TZ_OFFSET_MIN, v); }
+
 int  NvsPreferences::getUserCount(int d) { return ready_ ? prefs_.getInt(KEY_USER_COUNT, d) : d; }
 void NvsPreferences::setUserCount(int v) { if (ready_) prefs_.putInt(KEY_USER_COUNT, v); }
 

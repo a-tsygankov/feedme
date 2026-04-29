@@ -94,36 +94,73 @@ void FeedConfirmView::build(lv_obj_t* parent) {
 
 void FeedConfirmView::redraw() {
     if (!roster_ || roster_->count() == 0) return;
-    const auto& cat = roster_->active();
-    const int g = cat.portion.grams();
-    const int activeIdx = roster_->activeCatIdx();
+    const int sel = roster_->feedSelection();
+    const bool feedAll = (sel == feedme::domain::CatRoster::FEED_ALL);
 
-    // Hero image — active cat's slug → LittleFS path. Bad slugs land
-    // on C2 (happy) inside slugToPath().
-    if (activeIdx != lastDrawnActiveIdx_
+    // Pick the cat to display + the portion to show on the arc:
+    //   - feedAll: use the first cat's slug as a placeholder hero,
+    //     show TOTAL portion across all cats on the arc.
+    //   - single cat: that cat's slug + portion.
+    int displayedSlot;
+    int g;  // grams to drive the arc + label
+    if (feedAll) {
+        displayedSlot = 0;
+        g = 0;
+        for (int i = 0; i < roster_->count(); ++i) {
+            g += roster_->at(i).portion.grams();
+        }
+    } else {
+        displayedSlot = sel;
+        g = roster_->at(sel).portion.grams();
+    }
+    const auto& cat = roster_->at(displayedSlot);
+
+    // Hero image — selected cat's slug (or first cat's for ALL).
+    if (displayedSlot != lastDrawnActiveIdx_
         || strncmp(cat.slug, lastDrawnSlug_, 4) != 0) {
         lv_img_set_src(catImg_, feedme::assets::slugToPath(cat.slug, 88));
         strncpy(lastDrawnSlug_, cat.slug, 3);
         lastDrawnSlug_[3]   = '\0';
-        lastDrawnActiveIdx_ = activeIdx;
+        lastDrawnActiveIdx_ = displayedSlot;
     }
 
-    if (g == lastDrawnG_) return;
-    lastDrawnG_ = g;
-
-    char buf[8];
-    snprintf(buf, sizeof(buf), "%d", g);
+    // Portion label — for ALL show the total grams; otherwise the
+    // selected cat's portion. Arc still uses 0..MAX_G mapping for a
+    // single cat; for ALL we cap the arc at full so the visual is
+    // "whole arc, big number" rather than overflowing past 100%.
+    char buf[12];
+    if (feedAll) {
+        snprintf(buf, sizeof(buf), "%d", g);
+        lv_arc_set_value(arcFg_, ARC_SWEEP_MAX_DEG);
+    } else {
+        snprintf(buf, sizeof(buf), "%d", g);
+        const int sweep = (g * ARC_SWEEP_MAX_DEG)
+                          / feedme::domain::PortionState::MAX_G;
+        lv_arc_set_value(arcFg_, sweep);
+    }
     lv_label_set_text(portionLbl_, buf);
 
-    // Arc sweep 0..270 mapped to portion 0..MAX_G (60). LVGL takes int.
-    const int sweep = (g * ARC_SWEEP_MAX_DEG) / feedme::domain::PortionState::MAX_G;
-    lv_arc_set_value(arcFg_, sweep);
+    // Hint line — show what the selection means + how to change it.
+    if (roster_->count() >= 2) {
+        if (feedAll) lv_label_set_text(hintLbl_, "ALL  CATS  -  PRESS POUR");
+        else         lv_label_set_text(hintLbl_, cat.name);
+    } else {
+        lv_label_set_text(hintLbl_, "TURN  ADJ  PRESS  POUR");
+    }
+    lastDrawnG_ = g;
 }
 
 void FeedConfirmView::onEnter() {
     lastDrawnG_         = -1;  // force a redraw
     lastDrawnActiveIdx_ = -1;
     lastDrawnSlug_[0]   = '\0';
+    // Default selection: ALL for multi-cat households (the common
+    // case — feed everyone at once), single-cat-0 for N=1.
+    if (roster_ && roster_->count() >= 2) {
+        roster_->setFeedSelection(feedme::domain::CatRoster::FEED_ALL);
+    } else if (roster_ && roster_->count() == 1) {
+        roster_->setFeedSelection(0);
+    }
     redraw();
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -139,9 +176,35 @@ void FeedConfirmView::render(const feedme::ports::DisplayFrame&) {
 const char* FeedConfirmView::handleInput(feedme::ports::TapEvent ev) {
     using E = feedme::ports::TapEvent;
     if (!roster_ || roster_->count() == 0) return nullptr;
+    const int N = roster_->count();
     switch (ev) {
-        case E::RotateCW:  roster_->activePortion().bumpUp();   return nullptr;
-        case E::RotateCCW: roster_->activePortion().bumpDown(); return nullptr;
+        case E::RotateCW:
+            if (N >= 2) {
+                // Cycle selection through [ALL, 0, 1, ..., N-1, ALL...]
+                const int sel = roster_->feedSelection();
+                const int next = (sel == feedme::domain::CatRoster::FEED_ALL)
+                                  ? 0
+                                  : (sel + 1 >= N
+                                     ? feedme::domain::CatRoster::FEED_ALL
+                                     : sel + 1);
+                roster_->setFeedSelection(next);
+            } else {
+                roster_->activePortion().bumpUp();
+            }
+            return nullptr;
+        case E::RotateCCW:
+            if (N >= 2) {
+                const int sel = roster_->feedSelection();
+                const int prev = (sel == feedme::domain::CatRoster::FEED_ALL)
+                                  ? N - 1
+                                  : (sel == 0
+                                     ? feedme::domain::CatRoster::FEED_ALL
+                                     : sel - 1);
+                roster_->setFeedSelection(prev);
+            } else {
+                roster_->activePortion().bumpDown();
+            }
+            return nullptr;
         case E::Press:
             // Adaptive: N≥2 users → ask who's feeding before logging.
             if (users_ && users_->count() >= 2) return "feederPick";

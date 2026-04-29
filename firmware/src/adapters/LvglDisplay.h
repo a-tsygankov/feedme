@@ -5,6 +5,7 @@
 #include "domain/MealSchedule.h"
 #include "domain/PortionState.h"
 #include "domain/QuietWindow.h"
+#include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
 #include "domain/WakeTime.h"
 #include "ports/IClock.h"
@@ -15,6 +16,7 @@
 #include "views/FeedConfirmView.h"
 #include "views/BootView.h"
 #include "views/CatEditView.h"
+#include "views/CatRemoveView.h"
 #include "views/CatsListView.h"
 #include "views/IdleView.h"
 #include "views/LockConfirmView.h"
@@ -28,6 +30,7 @@
 #include "views/ScreenManager.h"
 #include "views/SettingsView.h"
 #include "views/ThresholdEditView.h"
+#include "views/TimeZoneEditView.h"
 #include "views/UsersListView.h"
 #include "views/WakeTimeEditView.h"
 #include "views/WifiResetView.h"
@@ -92,6 +95,7 @@ public:
     feedme::domain::PortionState&   portion()      { return roster_.activePortion(); }
     feedme::domain::QuietWindow&    quiet()        { return quiet_; }
     feedme::domain::WakeTime&       wake()         { return wake_; }
+    feedme::domain::TimeZone&       timezone()     { return tz_; }
 
 private:
     // Multi-screen scene graph: ScreenManager owns the views, hides
@@ -122,6 +126,8 @@ private:
     feedme::views::LockConfirmView   lockConfirmView_;
     // Phase D.1 — Wake-time editor sub-screen.
     feedme::views::WakeTimeEditView    wakeTimeEditView_;
+    // Timezone offset editor.
+    feedme::views::TimeZoneEditView    timezoneEditView_;
     // Phase D.2 — Quiet hours start/end editor.
     feedme::views::QuietHoursEditView  quietHoursEditView_;
     // Phase D.3 — Hungry-threshold editor.
@@ -131,6 +137,7 @@ private:
     // Phase D.5 — Cats roster + per-cat slug picker.
     feedme::views::CatsListView        catsListView_;
     feedme::views::CatEditView         catEditView_;
+    feedme::views::CatRemoveView       catRemoveView_;
     // Phase D.6 — Users roster (no per-user editor in v0).
     feedme::views::UsersListView       usersListView_;
 #if defined(FEEDME_HAS_HOPPER)
@@ -151,6 +158,10 @@ private:
     feedme::domain::CatRoster    roster_;
     // User roster (Phase D.6; defaults to 1 user seeded on first boot).
     feedme::domain::UserRoster   userRoster_;
+    // Local timezone offset (default UTC). Display layer uses this
+    // when projecting unix epoch into hour/minute for the clock face
+    // and for local-hour comparisons in Schedule / Quiet.
+    feedme::domain::TimeZone     tz_;
 
     // The legacy LVGL-primitive cat is kept compiled (per
     // feedmeknob-plan.md open question 3 — answered "keep") but is no

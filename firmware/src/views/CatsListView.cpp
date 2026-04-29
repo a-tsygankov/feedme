@@ -22,8 +22,9 @@ enum class Slot { Done, Cat, Add };
 
 int CatsListView::rowCount() const {
     if (!roster_) return 1;  // just Done
-    const bool hasRoom = roster_->count() < feedme::domain::CatRoster::MAX_CATS;
-    return 1 + roster_->count() + (hasRoom ? 1 : 0);
+    const bool hasRoom    = roster_->count() < feedme::domain::CatRoster::MAX_CATS;
+    const bool canRemove  = roster_->count() >= 2;  // preserve N>=1 invariant
+    return 1 + roster_->count() + (hasRoom ? 1 : 0) + (canRemove ? 1 : 0);
 }
 
 void CatsListView::rowText(int idx, char* buf, int bufLen) const {
@@ -33,9 +34,15 @@ void CatsListView::rowText(int idx, char* buf, int bufLen) const {
     if (catIdx < roster_->count()) {
         const auto& c = roster_->at(catIdx);
         snprintf(buf, bufLen, "%s  [%s]", c.name, c.slug);
-    } else {
-        snprintf(buf, bufLen, "+ Add cat");
+        return;
     }
+    // Past the cats: "+ Add cat" if there's room, then "× Remove cat"
+    // if N>=2. Build a small dispatch table so handleInput stays in
+    // sync with rowText without duplicating the math.
+    const int afterCats = catIdx - roster_->count();
+    const bool hasRoom  = roster_->count() < feedme::domain::CatRoster::MAX_CATS;
+    if (afterCats == 0 && hasRoom) { snprintf(buf, bufLen, "+ Add cat"); return; }
+    snprintf(buf, bufLen, "x Remove cat");
 }
 
 void CatsListView::build(lv_obj_t* parent) {
@@ -142,15 +149,23 @@ const char* CatsListView::handleInput(feedme::ports::TapEvent ev) {
                 if (editView_) editView_->setEditingCatIndex(catIdx);
                 return "catEdit";
             }
-            // Add row.
-            const int newIdx = roster_->add();
-            if (newIdx >= 0) {
-                Serial.printf("[cats] added cat slot=%d id=%d\n",
-                              newIdx, roster_->at(newIdx).id);
-                if (editView_) editView_->setEditingCatIndex(newIdx);
-                return "catEdit";
+            // Tail rows: "+ Add cat" if there's room, then "× Remove cat".
+            const int afterCats = catIdx - roster_->count();
+            const bool hasRoom  = roster_->count() < feedme::domain::CatRoster::MAX_CATS;
+            if (afterCats == 0 && hasRoom) {
+                const int newIdx = roster_->add();
+                if (newIdx >= 0) {
+                    Serial.printf("[cats] added cat slot=%d id=%d\n",
+                                  newIdx, roster_->at(newIdx).id);
+                    if (editView_) editView_->setEditingCatIndex(newIdx);
+                    return "catEdit";
+                }
+                return nullptr;
             }
-            return nullptr;
+            // × Remove cat — opens a sub-list for picking which cat to
+            // remove. Selection happens there; this row is the entry
+            // point. (Only ever shown when N>=2 per rowCount.)
+            return "catRemove";
         }
         default:
             return nullptr;

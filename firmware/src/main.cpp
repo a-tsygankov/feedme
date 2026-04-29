@@ -25,6 +25,9 @@
 #include "adapters/LvglDisplay.h"
 #include "adapters/NoopNetwork.h"
 #include "adapters/SimulatedClock.h"
+#if !defined(SIMULATOR)
+#  include "adapters/WifiNetwork.h"
+#endif
 #include "application/DisplayCoordinator.h"
 #include "application/FeedingService.h"
 #include "domain/Mood.h"
@@ -63,7 +66,18 @@ feedme::ports::IClock& appClock = realClock;
 #endif
 
 feedme::adapters::LvglDisplay display;
-feedme::adapters::NoopNetwork network;
+
+// Network adapter: WifiNetwork against the Cloudflare Worker when both
+// FEEDME_BACKEND_URL and FEEDME_HID build flags are set, otherwise
+// NoopNetwork (link-state only, no fetch/post). The polymorphic
+// `network` reference fronts whichever was instantiated.
+#if !defined(SIMULATOR) && defined(FEEDME_BACKEND_URL) && defined(FEEDME_HID)
+feedme::adapters::WifiNetwork wifiNetwork(FEEDME_BACKEND_URL, FEEDME_HID);
+feedme::ports::INetwork&      network = wifiNetwork;
+#else
+feedme::adapters::NoopNetwork noopNetwork;
+feedme::ports::INetwork&      network = noopNetwork;
+#endif
 #if defined(SIMULATOR)
 feedme::adapters::NoopStorage     storage;
 feedme::adapters::NoopPreferences prefs;
@@ -151,8 +165,9 @@ feedme::application::FeedingService feeding(
     appClock, network, storage, display.roster());
 // Threshold is now per-cat (Phase E.x); DisplayCoordinator reads it
 // from the active cat. The default lives in Cat::DEFAULT_THRESHOLD_S.
+// Timezone offset shifts UTC epoch into local hour/minute for display.
 feedme::application::DisplayCoordinator displayCoord(
-    display, feeding, appClock, display.roster());
+    display, feeding, appClock, display.roster(), display.timezone());
 
 uint32_t lastServiceTickMs = 0;
 
@@ -207,6 +222,8 @@ void setup() {
     display.wake().loadFromStorage(
         prefs.getWakeHour(feedme::domain::WakeTime::DEFAULT_HOUR),
         prefs.getWakeMinute(feedme::domain::WakeTime::DEFAULT_MINUTE));
+    display.timezone().loadFromStorage(
+        prefs.getTimeZoneOffsetMin(feedme::domain::TimeZone::DEFAULT_MIN));
 
     // Cat roster — load count + per-slot fields, then ensure N≥1
     // (seedDefaultIfEmpty adds one default cat on first boot).
@@ -432,6 +449,9 @@ void loop() {
         if (display.wake().consumeDirty()) {
             prefs.setWakeHour(display.wake().hour());
             prefs.setWakeMinute(display.wake().minute());
+        }
+        if (display.timezone().consumeDirty()) {
+            prefs.setTimeZoneOffsetMin(display.timezone().offsetMin());
         }
         if (display.roster().consumeDirty()) {
             const auto& roster = display.roster();

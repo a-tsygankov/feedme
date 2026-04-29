@@ -38,6 +38,7 @@ const ItemSpec kItems[SettingsView::ITEM_COUNT] = {
     { "Threshold", LV_SYMBOL_SETTINGS },
     { "Cats",      "*"            },   // no paw glyph; placeholder for IcCat
     { "Users",     "U"            },   // placeholder for IcUser
+    { "Timezone",  "Z"            },   // placeholder for IcGlobe
 };
 
 }  // namespace
@@ -120,6 +121,7 @@ void SettingsView::redraw() {
                                      : -1L;
     const int  catCount     = roster_      ? roster_->count()      : -1;
     const int  userCount    = userRoster_  ? userRoster_->count()  : -1;
+    const int  tzMin        = tz_          ? tz_->offsetMin()      : -99999;
 
     const bool changed = firstRender_
                          || selectedIdx_ != lastDrawnIdx_
@@ -129,7 +131,8 @@ void SettingsView::redraw() {
                          || wakeM        != lastDrawnWakeMinute_
                          || thresholdSec != lastDrawnThresholdSec_
                          || catCount     != lastDrawnCatCount_
-                         || userCount    != lastDrawnUserCount_;
+                         || userCount    != lastDrawnUserCount_
+                         || tzMin        != lastDrawnTzMin_;
     if (!changed) return;
 
     for (int i = 0; i < ITEM_COUNT; ++i) {
@@ -212,6 +215,27 @@ void SettingsView::redraw() {
                 }
                 break;
             }
+            case 6: {
+                if (tz_) {
+                    if (tzMin == 0) {
+                        lv_label_set_text(rowValues_[i], "UTC");
+                    } else {
+                        const char sign = tzMin > 0 ? '+' : '-';
+                        const int absM = tzMin > 0 ? tzMin : -tzMin;
+                        char buf[10];
+                        if (absM % 60 == 0) {
+                            snprintf(buf, sizeof(buf), "%c%d", sign, absM / 60);
+                        } else {
+                            snprintf(buf, sizeof(buf), "%c%d:%02d",
+                                     sign, absM / 60, absM % 60);
+                        }
+                        lv_label_set_text(rowValues_[i], buf);
+                    }
+                } else {
+                    lv_label_set_text(rowValues_[i], "-");
+                }
+                break;
+            }
         }
     }
 
@@ -223,6 +247,7 @@ void SettingsView::redraw() {
     lastDrawnThresholdSec_     = thresholdSec;
     lastDrawnCatCount_         = catCount;
     lastDrawnUserCount_        = userCount;
+    lastDrawnTzMin_            = tzMin;
     firstRender_               = false;
 }
 
@@ -266,6 +291,8 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return "catsList";
                 case 5:  // Users list (Phase D.6) — wired
                     return "usersList";
+                case 6:  // Timezone editor — wired
+                    return "timezoneEdit";
             }
             return nullptr;
         // Long-press / long-touch → ScreenManager fallback to parent().
