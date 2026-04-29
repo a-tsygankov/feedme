@@ -5,6 +5,7 @@
 
 #include <Arduino.h>
 #include <array>
+#include <cstring>
 
 #if !defined(SIMULATOR)
 #  include <WiFi.h>
@@ -47,8 +48,8 @@
 
 namespace {
 
-// 5 hours per the design.
-constexpr int64_t HUNGRY_THRESHOLD_SEC = 5 * 3600;
+// (HUNGRY_THRESHOLD_SEC global removed — threshold is per-cat now;
+// the default lives in Cat::DEFAULT_THRESHOLD_S.)
 
 #if defined(SIMULATOR)
 // Pretend "now" started at a fixed epoch on Apr 26 2026 12:00 UTC.
@@ -144,8 +145,10 @@ constexpr int SNOOZE_DURATION_SEC      = 30 * 60;  // long-press = 30 minutes
 constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
 feedme::application::FeedingService feeding(appClock, network, storage);
+// Threshold is now per-cat (Phase E.x); DisplayCoordinator reads it
+// from the active cat. The default lives in Cat::DEFAULT_THRESHOLD_S.
 feedme::application::DisplayCoordinator displayCoord(
-    display, feeding, appClock, prefs, HUNGRY_THRESHOLD_SEC);
+    display, feeding, appClock, display.roster());
 
 uint32_t lastServiceTickMs = 0;
 
@@ -180,7 +183,115 @@ void setup() {
     network.begin();
     storage.begin();
     prefs.begin();
-    displayCoord.loadPreferences();
+    // (DisplayCoordinator::loadPreferences removed — threshold is now
+    // per-cat and seeded inside the roster load block below.)
+    // Wire FeedingService into PouringView so a completed pour logs
+    // through the application layer. PouringView owns the only call
+    // site for logFeeding now that the dispatcher's tap-to-feed path
+    // has migrated. Per-cat portion is seeded below alongside the
+    // rest of the cat roster fields.
+    display.quiet().loadFromStorage(
+        prefs.getQuietEnabled(false),
+        prefs.getQuietStartHour  (feedme::domain::QuietWindow::DEFAULT_START_HOUR),
+        prefs.getQuietStartMinute(feedme::domain::QuietWindow::DEFAULT_START_MINUTE),
+        prefs.getQuietEndHour    (feedme::domain::QuietWindow::DEFAULT_END_HOUR),
+        prefs.getQuietEndMinute  (feedme::domain::QuietWindow::DEFAULT_END_MINUTE));
+    display.wake().loadFromStorage(
+        prefs.getWakeHour(feedme::domain::WakeTime::DEFAULT_HOUR),
+        prefs.getWakeMinute(feedme::domain::WakeTime::DEFAULT_MINUTE));
+
+    // Cat roster — load count + per-slot fields, then ensure N≥1
+    // (seedDefaultIfEmpty adds one default cat on first boot).
+    //
+    // Migration: the legacy global "portionG" NVS key (pre-per-cat)
+    // seeds slot 0's portion if no per-slot value is yet stored, so
+    // existing devices don't reset to default.
+    {
+        auto& roster = display.roster();
+        roster.clear();
+        const int n = prefs.getCatCount(0);
+        const int legacyPortion = prefs.getPortionGrams(
+            feedme::domain::PortionState::DEFAULT_G);
+        const int64_t legacyThreshold = prefs.getHungryThresholdSec(
+            feedme::domain::Cat::DEFAULT_THRESHOLD_S);
+        for (int i = 0; i < n && i < feedme::domain::CatRoster::MAX_CATS; ++i) {
+            const int  id = prefs.getCatId(i, i);
+            char nameBuf[feedme::domain::Cat::NAME_CAP] = {0};
+            char slugBuf[feedme::domain::Cat::SLUG_CAP] = {0};
+            const bool haveName = prefs.getCatName(i, nameBuf, sizeof(nameBuf));
+            const bool haveSlug = prefs.getCatSlug(i, slugBuf, sizeof(slugBuf));
+            // Per-slot portion + threshold; migration: slot 0 falls back
+            // to the legacy single keys so existing devices keep values.
+            const int defaultPort = (i == 0) ? legacyPortion
+                                              : feedme::domain::PortionState::DEFAULT_G;
+            const int64_t defaultThr = (i == 0) ? legacyThreshold
+                                                  : feedme::domain::Cat::DEFAULT_THRESHOLD_S;
+            const int     portion   = prefs.getCatPortion(i, defaultPort);
+            const int64_t threshold = prefs.getCatThresholdSec(i, defaultThr);
+            roster.appendLoaded(static_cast<uint8_t>(id),
+                                haveName ? nameBuf : nullptr,
+                                haveSlug ? slugBuf : nullptr,
+                                portion,
+                                threshold);
+        }
+        roster.seedDefaultIfEmpty();
+        roster.markClean();
+        // If we just seeded a default, persist immediately so the next
+        // boot doesn't keep "first-run"-seeding (which would re-issue
+        // ids and confuse any future event-attribution work).
+        if (n == 0) {
+            prefs.setCatCount(roster.count());
+            for (int i = 0; i < roster.count(); ++i) {
+                prefs.setCatId         (i, roster.at(i).id);
+                prefs.setCatName       (i, roster.at(i).name);
+                prefs.setCatSlug       (i, roster.at(i).slug);
+                prefs.setCatPortion    (i, roster.at(i).portion.grams());
+                prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+            }
+        }
+    }
+
+    // User roster — same load + seed + persist-on-first-run pattern.
+    {
+        auto& roster = display.userRoster();
+        roster.clear();
+        const int n = prefs.getUserCount(0);
+        for (int i = 0; i < n && i < feedme::domain::UserRoster::MAX_USERS; ++i) {
+            const int  id = prefs.getUserId(i, i);
+            char nameBuf[feedme::domain::User::NAME_CAP] = {0};
+            const bool haveName = prefs.getUserName(i, nameBuf, sizeof(nameBuf));
+            roster.appendLoaded(static_cast<uint8_t>(id),
+                                haveName ? nameBuf : nullptr);
+        }
+        roster.seedDefaultIfEmpty();
+        roster.markClean();
+        if (n == 0) {
+            prefs.setUserCount(roster.count());
+            for (int i = 0; i < roster.count(); ++i) {
+                prefs.setUserId  (i, roster.at(i).id);
+                prefs.setUserName(i, roster.at(i).name);
+            }
+        }
+    }
+    display.pouringView().setFeedingService(&feeding);
+    display.pouringView().setUserRoster(&display.userRoster());
+    display.settingsView().setNetwork(&network);
+    display.settingsView().setCoordinator(&displayCoord);
+    display.thresholdEditView().setCoordinator(&displayCoord);
+    display.lockConfirmView().setSensors(&taps, &button);
+    display.wifiResetView().setOnConfirm(+[]() {
+        // No persisted Wi-Fi creds in NVS yet — captive portal (roadmap
+        // Phase 2.4) is what will start storing them and what real
+        // "reset" will need to clear. For now Reset just reboots so the
+        // device re-runs setup() (and re-reads wifi_credentials.h).
+#if !defined(SIMULATOR)
+        Serial.println("[wifi] reset → ESP.restart()");
+        delay(100);          // let the print drain over USB-CDC
+        ESP.restart();
+#else
+        Serial.println("[wifi] reset (sim) — no reboot");
+#endif
+    });
     feeding.loadHistoryFromStorage();
     taps.begin();
     button.begin();
@@ -188,27 +299,21 @@ void setup() {
     leds.begin();
 #endif
 
-    // All eight input events route through one handler. Quick gestures
-    // log a feed, deliberate ones snooze, the rest are placeholders
-    // ready for menu / history / threshold tuning when those land.
+    // All eight input events route through one handler. Cross-cutting
+    // overlays (history) and the LockConfirm parental gate intercept
+    // here; everything else hands to the active view, which returns
+    // the next view's name (or null) and ScreenManager has already
+    // transitioned by the time we return.
     //
-    //   Tap          (capacitive)  -> log feed
-    //   Press        (physical)    -> log feed (alt tactile path)
-    //   DoubleTap    (capacitive)  -> history view  (TODO)
-    //   DoublePress  (physical)    -> history view  (TODO, alt path)
-    //   LongTouch    (capacitive)  -> menu / settings (TODO)
-    //   LongPress    (physical)    -> snooze 30 min
-    //   RotateCW     (knob)        -> menu next / +1   (TODO)
-    //   RotateCCW    (knob)        -> menu prev / -1   (TODO)
-    // Inputs route through the active view's handleInput() first; the
-    // view transitions itself if appropriate. Cross-cutting effects
-    // (history overlay toggle, LED pulses) layer on top.
-    //
-    // Phase B note: log-feed-on-tap / snooze-on-longpress / threshold-
-    // tuning-on-rotate are temporarily disabled at the dispatch level —
-    // they migrate to their new homes in Phase C (Feed Confirm flow,
-    // Lock Confirm, Settings sub-editor). For now the device demonstrates
-    // Idle <-> Menu navigation only.
+    // LongPress / LongTouch from any screen except Pouring opens
+    // LockConfirm (per the FSM). Pouring keeps long-touch as direct
+    // cancel — confirming the cancel of an in-progress action would
+    // be perverse. Per-screen LongPress handlers in the other views
+    // (FeedConfirm, PortionAdjust, Schedule, Quiet, Settings) are now
+    // shadowed by this interception and effectively dead — they return
+    // "menu" but never run; canonical cancel is "release LockConfirm
+    // before the threshold" → returns to whichever view we came from.
+    // Cleanup of those handlers is deferred to a follow-up sweep.
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
 
@@ -255,6 +360,21 @@ void setup() {
             return;
         }
 
+        // LockConfirm cross-cutting interception — long-press / long-touch
+        // from any view EXCEPT pouring (which uses long-touch for direct
+        // cancel) opens the parental gate. Skip if we're already on
+        // LockConfirm so re-firing LongPress mid-hold is a no-op.
+        if (ev == E::LongPress || ev == E::LongTouch) {
+            const char* curName = display.currentView();
+            const bool inPouring     = curName && std::strcmp(curName, "pouring") == 0;
+            const bool inLockConfirm = curName && std::strcmp(curName, "lockConfirm") == 0;
+            if (!inPouring && !inLockConfirm) {
+                display.lockConfirmView().setReturnTo(curName ? curName : "idle");
+                display.transitionTo("lockConfirm");
+                return;
+            }
+        }
+
         // Otherwise: hand to the active view. It returns the next view
         // name (or null to stay) and ScreenManager has already transitioned
         // by the time handleInput returns.
@@ -293,6 +413,36 @@ void loop() {
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
         feeding.tick();
+        if (display.quiet().consumeDirty()) {
+            prefs.setQuietEnabled    (display.quiet().enabled());
+            prefs.setQuietStartHour  (display.quiet().startHour());
+            prefs.setQuietStartMinute(display.quiet().startMinute());
+            prefs.setQuietEndHour    (display.quiet().endHour());
+            prefs.setQuietEndMinute  (display.quiet().endMinute());
+        }
+        if (display.wake().consumeDirty()) {
+            prefs.setWakeHour(display.wake().hour());
+            prefs.setWakeMinute(display.wake().minute());
+        }
+        if (display.roster().consumeDirty()) {
+            const auto& roster = display.roster();
+            prefs.setCatCount(roster.count());
+            for (int i = 0; i < roster.count(); ++i) {
+                prefs.setCatId         (i, roster.at(i).id);
+                prefs.setCatName       (i, roster.at(i).name);
+                prefs.setCatSlug       (i, roster.at(i).slug);
+                prefs.setCatPortion    (i, roster.at(i).portion.grams());
+                prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+            }
+        }
+        if (display.userRoster().consumeDirty()) {
+            const auto& users = display.userRoster();
+            prefs.setUserCount(users.count());
+            for (int i = 0; i < users.count(); ++i) {
+                prefs.setUserId  (i, users.at(i).id);
+                prefs.setUserName(i, users.at(i).name);
+            }
+        }
 
 #if !defined(SIMULATOR)
         // Update ambient LED-ring colour when the mood changes.

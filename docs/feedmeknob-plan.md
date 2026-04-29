@@ -153,14 +153,39 @@ Implement in priority order; each is independent enough to ship as its own commi
 
 Each commits as a separate "Add C.x screen" patch. End of C = device feels like the full FeedMeKnob.html prototype.
 
-### Phase D — Settings sub-editors + persistence · ~1 day
+### Phase D — Settings sub-editors + persistence · ~2 days
 
-Goal: the menu items in Settings actually do things.
+Goal: the menu items in Settings actually do things, and the household-level entity lists (cats, users) become editable.
 
-- **D.1** Wake-time editor — sub-screen with hour/minute selectors (rotate + press to confirm digit, long-press back).
-- **D.2** Quiet hours start/end editor.
+Per-device tuning:
+
+- **D.1** Wake-time editor — sub-screen with hour/minute selectors. Rotate adjusts focused field, Press advances focus / saves on the last field. (Long-press is shadowed by the cross-cutting LockConfirm interception from C.5; release returns to the editor.)
+- **D.2** Quiet hours start/end editor — same pattern, two HH:MM pickers (start, end).
 - **D.3** Threshold editor *(absorbs the dev-3 knob-rotate-tunes-threshold behavior — it now lives on a dedicated screen instead of always-on)*.
 - **D.4** Wi-Fi reset (clears NVS Wi-Fi creds, reboots into setup mode — depends on roadmap Phase 2.4 captive portal landing first OR build-flag re-flash).
+
+Household-level entity management (closes the multi-cat / multi-user gap):
+
+- **D.5** Cats editor — sub-screen lists the household's cats; per-cat: name, slug (one of `cats4/`), default portion, hungry threshold. Add / rename / delete. Always visible in Settings (it's a management surface, not a selector — even N=1 households need a path to add a second cat). Reachable from Settings → Cats row.
+- **D.6** Users editor — sub-screen lists the household's users + provides "+ Add user". Devices are shared (multiple users may feed from the same knob), so there is **no** "signed-in user" pointer per device — the roster is just the set of names. Always visible in Settings (same management-vs-selector reasoning). Per-feed attribution for N≥2 happens via a separate picker inserted into the Feed flow (deferred from D.6 — see follow-up below). v0 with N=1: the only user's name silently stamps every event.
+
+#### D.6 follow-up: "by whom?" picker
+
+Once the roster has 2+ users, the Feed flow needs an explicit attribution step. Likely placement: between **Feed Confirm** and **Pouring** (so the user picks who they are *before* the meal is logged, not after). Picker UX: same horizontal/vertical scroll list as CatsListView. The picker fires *every* time someone feeds — there's no remembered "last feeder", because the whole point of the multi-user model is that *anyone* in the household can use the device. Tracked separately because it requires a 6-state Feed FSM extension.
+
+#### Caveats for D.5 / D.6 (apply to both)
+
+1. **Knob character entry is tedious.** The character-picker UX (Phase 1.3) is acceptable for an SSID once; for cat names and user names that the user actually wants to read, it's painful. The on-device editor in D.5/D.6 ships as a **fallback**; the **primary editing path** is the captive portal (roadmap Phase 2.4) — phone keyboard, done in seconds. Design the captive portal's Cats / Users tabs alongside the on-device editor so they share data shape.
+2. **No backend yet → list is local-only.** Cats and users are household scope per [handoff.md § "Entities…"](../handoff.md), but until Phase 2.1 (`WifiNetwork`) + a `cats` / `devices` API ship, the firmware can only persist to NVS. D.5/D.6 land as "this device's view of the household"; full sync arrives with Phase E.
+3. **Renames need stable IDs, not display names.** Events stamp `by` as free-form text and (in the planned schema) `cat` as a slug. Before exposing rename, switch the event model to reference cat-by-id and user-by-id so historical rows don't orphan when display names change. This is a pre-requisite for D.5/D.6 to ship safely; do it first or scope D.5/D.6 to "add only, no rename".
+
+#### Adaptive-UI rule reminder
+
+Per [handoff.md § "Entities…"](../handoff.md), screens never offer a selector for cardinality 1. Concretely:
+
+- The **Cats** and **Users** management rows in Settings are always present (management ≠ selection).
+- The **cat-selector gesture** (planned: long-rotate from Idle) only fires when N≥2 cats.
+- The **"fed by …" attribution prompt** in the Feed flow only appears when N≥2 users; with N=1 the signed-in user is implicit.
 
 ### Phase E — Backend integration touch-up · folded into roadmap Phase 2
 
@@ -174,6 +199,7 @@ The schedule, quiet hours, and feed-event log all want to sync to Cloudflare Wor
 ## Asset pipeline detail (for Phase A)
 
 The PNGs are 1500×1500. We need them at 130×130 and 88×88 in `lv_img_dsc_t` format.
+Keep orogonals in repo for later use with higher definition devices.
 
 Two options:
 

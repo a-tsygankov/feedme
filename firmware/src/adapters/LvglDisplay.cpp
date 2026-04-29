@@ -66,10 +66,55 @@ void LvglDisplay::buildScene() {
     lv_obj_set_style_bg_color(scr, lv_color_hex(kTheme.bg), 0);
 
     // ScreenManager owns the per-view widget hierarchies.
+    // Wire shared portion state into the views that read/mutate it.
+    // FeedingService is injected later (in main.cpp) once it exists.
+    feedConfirmView_.setRoster(&roster_);
+    portionAdjustView_.setRoster(&roster_);
+    pouringView_.setRoster(&roster_);
+    scheduleView_.setRoster(&roster_);
+    quietView_.setQuiet(&quiet_);
+    settingsView_.setQuiet(&quiet_);
+    settingsView_.setWake(&wake_);
+    wakeTimeEditView_.setWakeTime(&wake_);
+    quietHoursEditView_.setQuiet(&quiet_);
+    settingsView_.setRoster(&roster_);
+    settingsView_.setUserRoster(&userRoster_);
+    catsListView_.setRoster(&roster_);
+    catsListView_.setEditTarget(&catEditView_);
+    catEditView_.setRoster(&roster_);
+    usersListView_.setRoster(&userRoster_);
+    feedConfirmView_.setUserRoster(&userRoster_);
+    feederPickerView_.setRoster(&userRoster_);
+    // settingsView_.setCoordinator() and thresholdEditView_.setCoordinator()
+    // are called from main.cpp after DisplayCoordinator is constructed.
+    // settingsView_.setNetwork() is called from main.cpp once network exists.
+
     screens_.begin(scr);
+    screens_.registerView(&bootView_);
     screens_.registerView(&idleView_);
     screens_.registerView(&menuView_);
-    screens_.transition("idle");
+    screens_.registerView(&feedConfirmView_);
+    screens_.registerView(&portionAdjustView_);
+    screens_.registerView(&feederPickerView_);
+    screens_.registerView(&pouringView_);
+    screens_.registerView(&fedView_);
+    screens_.registerView(&scheduleView_);
+    screens_.registerView(&quietView_);
+    screens_.registerView(&settingsView_);
+    screens_.registerView(&lockConfirmView_);
+    screens_.registerView(&wakeTimeEditView_);
+    screens_.registerView(&quietHoursEditView_);
+    screens_.registerView(&thresholdEditView_);
+    screens_.registerView(&wifiResetView_);
+    screens_.registerView(&catsListView_);
+    screens_.registerView(&catEditView_);
+    screens_.registerView(&usersListView_);
+#if defined(FEEDME_HAS_HOPPER)
+    screens_.registerView(&hopperView_);
+#endif
+    // Power-on splash auto-advances to idle via BootView::nextView()
+    // after BOOT_DURATION_MS.
+    screens_.transition("boot");
 
     // Compile the legacy primitive cat without putting it on the screen.
     // (Open question 3 in docs/feedmeknob-plan.md, answered "keep".)

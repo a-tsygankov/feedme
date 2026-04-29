@@ -9,12 +9,164 @@ class NoopPreferences : public feedme::ports::IPreferences {
 public:
     void begin() override {}
     int64_t getHungryThresholdSec(int64_t defaultValue) override {
-        return value_ != 0 ? value_ : defaultValue;
+        return threshold_ != 0 ? threshold_ : defaultValue;
     }
-    void setHungryThresholdSec(int64_t value) override { value_ = value; }
+    void setHungryThresholdSec(int64_t value) override { threshold_ = value; }
+
+    int  getPortionGrams(int defaultValue) override {
+        return portion_ != 0 ? portion_ : defaultValue;
+    }
+    void setPortionGrams(int value) override { portion_ = value; }
+
+    bool getQuietEnabled(bool defaultValue) override {
+        return quietHasValue_ ? quietEnabled_ : defaultValue;
+    }
+    void setQuietEnabled(bool value) override {
+        quietEnabled_ = value;
+        quietHasValue_ = true;
+    }
+
+    int  getWakeHour  (int defaultValue) override {
+        return wakeHasValue_ ? wakeHour_ : defaultValue;
+    }
+    int  getWakeMinute(int defaultValue) override {
+        return wakeHasValue_ ? wakeMinute_ : defaultValue;
+    }
+    void setWakeHour(int value) override {
+        wakeHour_ = value;
+        wakeHasValue_ = true;
+    }
+    void setWakeMinute(int value) override {
+        wakeMinute_ = value;
+        wakeHasValue_ = true;
+    }
+
+    int  getQuietStartHour  (int d) override { return qHasValue_ ? qStartH_ : d; }
+    int  getQuietStartMinute(int d) override { return qHasValue_ ? qStartM_ : d; }
+    int  getQuietEndHour    (int d) override { return qHasValue_ ? qEndH_   : d; }
+    int  getQuietEndMinute  (int d) override { return qHasValue_ ? qEndM_   : d; }
+    void setQuietStartHour  (int v) override { qStartH_ = v; qHasValue_ = true; }
+    void setQuietStartMinute(int v) override { qStartM_ = v; qHasValue_ = true; }
+    void setQuietEndHour    (int v) override { qEndH_   = v; qHasValue_ = true; }
+    void setQuietEndMinute  (int v) override { qEndM_   = v; qHasValue_ = true; }
+
+    // Cats — minimal in-RAM placeholder so the simulator can run the
+    // editor without a backing store. Loses everything on reboot.
+    int  getCatCount(int d) override { return catCountSet_ ? catCount_ : d; }
+    void setCatCount(int v) override { catCount_ = v; catCountSet_ = true; }
+    int  getCatId(int slot, int d) override {
+        return (slot >= 0 && slot < 4 && catIdSet_[slot]) ? catId_[slot] : d;
+    }
+    void setCatId(int slot, int v) override {
+        if (slot < 0 || slot >= 4) return;
+        catId_[slot] = v;
+        catIdSet_[slot] = true;
+    }
+    bool getCatName(int slot, char* buf, int bufLen) override {
+        if (slot < 0 || slot >= 4 || !catNameSet_[slot] || !buf) return false;
+        // Minimal copy — sim tests only.
+        const char* src = catName_[slot];
+        int i = 0;
+        while (src[i] && i < bufLen - 1) { buf[i] = src[i]; ++i; }
+        buf[i] = '\0';
+        return true;
+    }
+    void setCatName(int slot, const char* v) override {
+        if (slot < 0 || slot >= 4 || !v) return;
+        int i = 0;
+        while (v[i] && i < 15) { catName_[slot][i] = v[i]; ++i; }
+        catName_[slot][i] = '\0';
+        catNameSet_[slot] = true;
+    }
+    bool getCatSlug(int slot, char* buf, int bufLen) override {
+        if (slot < 0 || slot >= 4 || !catSlugSet_[slot] || !buf) return false;
+        const char* src = catSlug_[slot];
+        int i = 0;
+        while (src[i] && i < bufLen - 1) { buf[i] = src[i]; ++i; }
+        buf[i] = '\0';
+        return true;
+    }
+    void setCatSlug(int slot, const char* v) override {
+        if (slot < 0 || slot >= 4 || !v) return;
+        int i = 0;
+        while (v[i] && i < 3) { catSlug_[slot][i] = v[i]; ++i; }
+        catSlug_[slot][i] = '\0';
+        catSlugSet_[slot] = true;
+    }
+    int  getCatPortion(int slot, int d) override {
+        return (slot >= 0 && slot < 4 && catPortionSet_[slot]) ? catPortion_[slot] : d;
+    }
+    void setCatPortion(int slot, int v) override {
+        if (slot < 0 || slot >= 4) return;
+        catPortion_[slot] = v;
+        catPortionSet_[slot] = true;
+    }
+    int64_t getCatThresholdSec(int slot, int64_t d) override {
+        return (slot >= 0 && slot < 4 && catThreshSet_[slot]) ? catThresh_[slot] : d;
+    }
+    void setCatThresholdSec(int slot, int64_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        catThresh_[slot] = v;
+        catThreshSet_[slot] = true;
+    }
+
+    int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
+    void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
+    int  getUserId(int slot, int d) override {
+        return (slot >= 0 && slot < 4 && userIdSet_[slot]) ? userId_[slot] : d;
+    }
+    void setUserId(int slot, int v) override {
+        if (slot < 0 || slot >= 4) return;
+        userId_[slot] = v;
+        userIdSet_[slot] = true;
+    }
+    bool getUserName(int slot, char* buf, int bufLen) override {
+        if (slot < 0 || slot >= 4 || !userNameSet_[slot] || !buf) return false;
+        const char* src = userName_[slot];
+        int i = 0;
+        while (src[i] && i < bufLen - 1) { buf[i] = src[i]; ++i; }
+        buf[i] = '\0';
+        return true;
+    }
+    void setUserName(int slot, const char* v) override {
+        if (slot < 0 || slot >= 4 || !v) return;
+        int i = 0;
+        while (v[i] && i < 15) { userName_[slot][i] = v[i]; ++i; }
+        userName_[slot][i] = '\0';
+        userNameSet_[slot] = true;
+    }
 
 private:
-    int64_t value_ = 0;
+    int64_t threshold_     = 0;
+    int     portion_       = 0;
+    bool    quietEnabled_  = false;
+    bool    quietHasValue_ = false;
+    int     wakeHour_      = 0;
+    int     wakeMinute_    = 0;
+    bool    wakeHasValue_  = false;
+    int     qStartH_       = 0;
+    int     qStartM_       = 0;
+    int     qEndH_         = 0;
+    int     qEndM_         = 0;
+    bool    qHasValue_     = false;
+    int     catCount_      = 0;
+    bool    catCountSet_   = false;
+    int     catId_  [4]    = {0};
+    bool    catIdSet_[4]   = {false};
+    char    catName_[4][16]= {{0}};
+    bool    catNameSet_[4] = {false};
+    char    catSlug_[4][4] = {{0}};
+    bool    catSlugSet_[4] = {false};
+    int     userCount_     = 0;
+    bool    userCountSet_  = false;
+    int     userId_  [4]   = {0};
+    bool    userIdSet_[4]  = {false};
+    char    userName_[4][16] = {{0}};
+    bool    userNameSet_[4] = {false};
+    int     catPortion_[4] = {0};
+    bool    catPortionSet_[4] = {false};
+    int64_t catThresh_[4] = {0};
+    bool    catThreshSet_[4] = {false};
 };
 
 }  // namespace feedme::adapters

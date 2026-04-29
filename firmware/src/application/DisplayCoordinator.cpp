@@ -8,34 +8,28 @@ namespace feedme::application {
 DisplayCoordinator::DisplayCoordinator(feedme::ports::IDisplay& display,
                                        FeedingService& feeding,
                                        feedme::ports::IClock& clock,
-                                       feedme::ports::IPreferences& prefs,
-                                       int64_t hungryThresholdSec)
+                                       feedme::domain::CatRoster& roster)
     : display_(display),
       feeding_(feeding),
       clock_(clock),
-      prefs_(prefs),
-      hungryThresholdSec_(hungryThresholdSec) {}
-
-void DisplayCoordinator::loadPreferences() {
-    hungryThresholdSec_ = prefs_.getHungryThresholdSec(hungryThresholdSec_);
-}
+      roster_(roster) {}
 
 int64_t DisplayCoordinator::adjustHungryThreshold(int64_t deltaSec) {
-    int64_t v = hungryThresholdSec_ + deltaSec;
+    int64_t v = roster_.activeThresholdSec() + deltaSec;
     if (v < MIN_THRESHOLD_SEC) v = MIN_THRESHOLD_SEC;
     if (v > MAX_THRESHOLD_SEC) v = MAX_THRESHOLD_SEC;
-    hungryThresholdSec_ = v;
-    prefs_.setHungryThresholdSec(v);
+    roster_.setActiveThresholdSec(v);
     return v;
 }
 
 void DisplayCoordinator::tick() {
     const auto& s = feeding_.state();
     const int64_t now = clock_.nowSec();
+    const int64_t threshold = roster_.activeThresholdSec();
 
     feedme::ports::DisplayFrame frame{};
-    frame.mood = feedme::domain::calculateMood(s, now, hungryThresholdSec_);
-    frame.ringProgress = feedme::domain::computeRingProgress(s, now, hungryThresholdSec_);
+    frame.mood = feedme::domain::calculateMood(s, now, threshold);
+    frame.ringProgress = feedme::domain::computeRingProgress(s, now, threshold);
     frame.todayCount = s.todayCount;
     frame.minutesSinceFeed = (s.lastFeedTs == 0)
         ? -1
