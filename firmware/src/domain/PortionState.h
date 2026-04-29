@@ -19,7 +19,13 @@ public:
     static constexpr int STEP_G    = 5;
     static constexpr int DEFAULT_G = 40;
 
-    explicit PortionState(int initial = DEFAULT_G) {
+    // Default ctor is needed implicitly when PortionState appears as a
+    // sub-object of value-initialized aggregates (e.g. `Cat{}` and
+    // `cats_[MAX_CATS]{}` in CatRoster). Marking the int-arg ctor
+    // `explicit` would otherwise hide it from value-initialization and
+    // trigger compiler warnings on every reset.
+    PortionState() = default;
+    explicit PortionState(int initial) {
         grams_ = clamp(initial);
     }
 
