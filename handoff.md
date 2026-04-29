@@ -10,6 +10,64 @@ A fridge-mounted IoT device using the **Waveshare ESP32-S3-LCD-1.28** (round 1.2
 
 ---
 
+## Entities: household, devices, users, cats
+
+The product serves a **single household**. Inside the household:
+
+| Entity | Cardinality | Notes |
+|---|---|---|
+| **Household** | exactly 1 | The whole system serves one home. There is no concept of multi-household — that's a separate deployment. |
+| **Devices** | 1..N (today: 1) | Each physical knob. Today only one is built, but every event the firmware emits and every API call carries a `deviceId` so the backend can already tell devices apart when a second one ships. Don't optimise the field away. |
+| **Users** | 1..N | A user is a person who feeds the cat(s) and records it. Stamped on each event as `by`. No upper bound. |
+| **Cats** | 1..N | Each cat is what the events record feedings *of*. No upper bound. |
+
+### Multiple users may use the same device at once
+
+Devices are shared. Two flatmates may both feed the same cat from the same fridge knob — no per-device "signed in" user, no mutual exclusion. The user model is just a roster of names; attribution happens at feed-time, not at sign-in-time. (Clarified 2026-04-28; supersedes earlier drafts that described a per-device "signed-in user".)
+
+### Adaptive UI: don't offer choices that don't exist
+
+A core UX rule: **never present a selector for an entity that has only one option.**
+
+- 1 cat configured → no cat picker on Idle, no cat field on Feed Confirm. The single cat is implicit.
+- 1 user configured → no "by whom?" prompt in the Feed flow. The single user is implicit; the firmware stamps that name on the event.
+- 2+ cats → cat selector appears (probably on Idle as a long-rotate-or-edge gesture; specifics TBD when the second cat is real).
+- 2+ users → an explicit "fed by …" attribution picker appears in the Feed flow (probably between Feed Confirm and Pouring, so the cat-feeder picks who they are before logging). No persistent "current user" — the picker fires every time.
+
+This rule is more important than feature symmetry — a household with 1 cat and 1 user should never see a screen that asks "which one?". The cardinality is queried at render time, not baked in.
+
+### Scope per screen / state
+
+Every piece of state belongs to exactly one of these scopes. New features must declare their scope before any code is written.
+
+| Screen / state | Scope | Notes |
+|---|---|---|
+| Idle (cat face, "fed Xm ago") | per-cat | shows the **active cat**. With 1 cat, "active" is the cat. With 2+, a cat-selection gesture chooses. |
+| Feed Confirm / Pouring / Fed | per-cat | logs `feed` event with `cat` and `by` populated. The selectors for cat / by appear only when their cardinality > 1. |
+| Schedule (4 meal slots) | per-cat | each cat keeps its own slot times. |
+| Quiet hours | household | one quiet window for the home, applies to all cats. |
+| Portion default | per-cat | each cat has its own default portion. With 1 cat, the device's "default portion" *is* that cat's. |
+| Settings (Wi-Fi, wake, calibrate) | per-device | local to the physical knob; not synced. Each device runs its own. |
+| Per-feed `by` attribution | per-event | captured at the moment of feeding (silent when the household has 1 user; explicit picker when N≥2). Devices are shared — there is no "signed-in user" stored per device. |
+| `hid` (household ID) | household | constant for the whole deployment. Doesn't need to be runtime-configurable in the single-household model — but is still passed on every API call so the backend isn't coupled to the assumption. |
+| `deviceId` | per-device | UUID baked into the device on first boot. Never reused. |
+
+### Backward-compatible backend
+
+The MVP D1 schema in this doc has no `cat`, `deviceId`, or per-cat config tables. The migration path to N cats / N devices / N users:
+
+- Add `cat TEXT NOT NULL DEFAULT 'primary'` and `device TEXT NOT NULL DEFAULT 'd0'` columns to `events`. Pre-existing rows fall into the primary cat / first device.
+- `GET /api/state?hid=…[&cat=…]` filters by cat; omitting `cat` returns the primary cat's state for back-compat (and is the correct call when a household has only one cat).
+- A new `cats` table holds per-cat config (name, slug, schedule, portion, threshold). For a 1-cat household this table has 1 row.
+- A new `devices` table holds per-device metadata (name, signed-in user, last seen). For a 1-device household this table has 1 row.
+- No `users` table — `by` is free-form text. The active user list per household = the distinct `by` values seen in the last N days. The 2+ user prompt UI uses this set.
+
+### What "Mochi", "Andrey", "Masha" mean in this doc
+
+Throughout this repo and in the design JSX (`FeedMeKnobApp.jsx`, etc.) you'll see hardcoded names like **Mochi** (cat) and **Andrey** / **Masha** (users). These are **placeholders for whatever cat / user is active at runtime**, not literals — the firmware substitutes the real names captured at first-time-setup. Treat them as `<cat-name>` / `<user-name>` when reading the design.
+
+---
+
 ## Hardware
 
 ### Board

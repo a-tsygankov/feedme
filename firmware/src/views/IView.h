@@ -33,6 +33,11 @@ public:
     // Returns the name of the next view ("idle", "menu", "feedConfirm" ...)
     // or nullptr to remain on the current view. Caller transitions.
     virtual const char* handleInput(feedme::ports::TapEvent ev) = 0;
+
+    // Time-driven self-transition. Polled by ScreenManager after render().
+    // Default: never. Used by Pouring (→ Fed on animation complete) and
+    // Fed (→ Idle on auto-dismiss).
+    virtual const char* nextView() { return nullptr; }
 };
 
 }  // namespace feedme::views

@@ -21,6 +21,7 @@ public:
     void begin() override;
     void onEvent(Listener listener) override;
     void poll() override;
+    bool isPressed() const override { return wasTouching_; }
 
 private:
     void emit(feedme::ports::TapEvent ev);

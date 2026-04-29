@@ -16,7 +16,7 @@ namespace feedme::views {
 // pointer to a stack/static instance owned by LvglDisplay.
 class ScreenManager {
 public:
-    static constexpr int MAX_VIEWS = 8;
+    static constexpr int MAX_VIEWS = 16;
 
     void begin(lv_obj_t* parent);
     void registerView(IView* view);  // call once per view in any order

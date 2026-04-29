@@ -14,6 +14,42 @@ public:
     void begin() override;
     int64_t getHungryThresholdSec(int64_t defaultValue) override;
     void    setHungryThresholdSec(int64_t value) override;
+    int  getPortionGrams(int defaultValue) override;
+    void setPortionGrams(int value) override;
+    bool getQuietEnabled(bool defaultValue) override;
+    void setQuietEnabled(bool value) override;
+    int  getWakeHour  (int defaultValue) override;
+    int  getWakeMinute(int defaultValue) override;
+    void setWakeHour  (int value) override;
+    void setWakeMinute(int value) override;
+    int  getQuietStartHour  (int defaultValue) override;
+    int  getQuietStartMinute(int defaultValue) override;
+    int  getQuietEndHour    (int defaultValue) override;
+    int  getQuietEndMinute  (int defaultValue) override;
+    void setQuietStartHour  (int value) override;
+    void setQuietStartMinute(int value) override;
+    void setQuietEndHour    (int value) override;
+    void setQuietEndMinute  (int value) override;
+
+    int  getCatCount(int defaultValue) override;
+    void setCatCount(int value) override;
+    int  getCatId   (int slot, int defaultValue) override;
+    void setCatId   (int slot, int value) override;
+    bool getCatName (int slot, char* buf, int bufLen) override;
+    void setCatName (int slot, const char* value) override;
+    bool getCatSlug (int slot, char* buf, int bufLen) override;
+    void setCatSlug (int slot, const char* value) override;
+    int  getCatPortion(int slot, int defaultValue) override;
+    void setCatPortion(int slot, int value) override;
+    int64_t getCatThresholdSec(int slot, int64_t defaultValue) override;
+    void    setCatThresholdSec(int slot, int64_t value) override;
+
+    int  getUserCount(int defaultValue) override;
+    void setUserCount(int value) override;
+    int  getUserId   (int slot, int defaultValue) override;
+    void setUserId   (int slot, int value) override;
+    bool getUserName (int slot, char* buf, int bufLen) override;
+    void setUserName (int slot, const char* value) override;
 
 private:
     ::Preferences prefs_;
@@ -21,6 +57,18 @@ private:
 
     static constexpr const char* NAMESPACE = "feedme";
     static constexpr const char* KEY_HUNGRY_THRESHOLD = "hungryThr";
+    static constexpr const char* KEY_PORTION_GRAMS    = "portionG";
+    static constexpr const char* KEY_QUIET_ENABLED    = "quietOn";
+    static constexpr const char* KEY_WAKE_HOUR        = "wakeH";
+    static constexpr const char* KEY_WAKE_MINUTE      = "wakeM";
+    static constexpr const char* KEY_QUIET_START_HOUR = "qStartH";
+    static constexpr const char* KEY_QUIET_START_MIN  = "qStartM";
+    static constexpr const char* KEY_QUIET_END_HOUR   = "qEndH";
+    static constexpr const char* KEY_QUIET_END_MIN    = "qEndM";
+    // Cat roster — keys are formatted on the fly by the .cpp via
+    // catSlotKey(prefix, slot) since NVS keys must be ≤15 chars.
+    static constexpr const char* KEY_CAT_COUNT        = "catN";
+    static constexpr const char* KEY_USER_COUNT       = "userN";
 };
 
 }  // namespace feedme::adapters

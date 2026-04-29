@@ -1,38 +1,34 @@
 #pragma once
 
 #include "application/FeedingService.h"
+#include "domain/CatRoster.h"
 #include "ports/IClock.h"
 #include "ports/IDisplay.h"
-#include "ports/IPreferences.h"
 
 namespace feedme::application {
 
 // Glue between FeedingService (state) and IDisplay (pixels).
 // Does NOT call hardware directly — it builds a DisplayFrame and asks the
 // adapter to render it.
+//
+// Hungry threshold is per-cat (Phase E.x — moved out of this class
+// into Cat). Adjustments route through CatRoster::setActiveThresholdSec
+// which marks the roster dirty; main.cpp's roster persist handler
+// writes it to NVS on the next service tick.
 class DisplayCoordinator {
 public:
     DisplayCoordinator(feedme::ports::IDisplay& display,
                        FeedingService& feeding,
                        feedme::ports::IClock& clock,
-                       feedme::ports::IPreferences& prefs,
-                       int64_t hungryThresholdSec);
+                       feedme::domain::CatRoster& roster);
 
     // Call from loop(). Cheap; the display adapter diffs internally.
     void tick();
 
-    // Pull the persisted threshold out of prefs into our in-memory
-    // value. Call once in setup() after prefs.begin() so the static-
-    // init ordering doesn't bite (constructor runs during global init,
-    // before prefs.begin() can open NVS).
-    void loadPreferences();
-
-    // Adjust the hungry-mood threshold by a delta in seconds. Clamped
-    // to the [MIN_THRESHOLD_SEC, MAX_THRESHOLD_SEC] range. Persists to
-    // prefs immediately. Returns the new value so the caller can
-    // log/display it.
+    // Adjust the active cat's hungry-mood threshold by a delta in
+    // seconds. Clamped to the [MIN, MAX] range. Returns the new value.
     int64_t adjustHungryThreshold(int64_t deltaSec);
-    int64_t hungryThresholdSec() const { return hungryThresholdSec_; }
+    int64_t hungryThresholdSec() const { return roster_.activeThresholdSec(); }
 
     static constexpr int64_t MIN_THRESHOLD_SEC = 30  * 60;  // 30 minutes
     static constexpr int64_t MAX_THRESHOLD_SEC = 12 * 3600; // 12 hours
@@ -41,8 +37,7 @@ private:
     feedme::ports::IDisplay&     display_;
     FeedingService&              feeding_;
     feedme::ports::IClock&       clock_;
-    feedme::ports::IPreferences& prefs_;
-    int64_t                      hungryThresholdSec_;
+    feedme::domain::CatRoster&   roster_;
 };
 
 }  // namespace feedme::application

@@ -45,7 +45,12 @@ void ScreenManager::transition(const char* name) {
 }
 
 void ScreenManager::render(const feedme::ports::DisplayFrame& frame) {
-    if (current_) current_->render(frame);
+    if (!current_) return;
+    current_->render(frame);
+    // Poll for self-transitions (Pouring → Fed → Idle). Done after render
+    // so the final frame of the outgoing view paints before the swap.
+    const char* next = current_->nextView();
+    if (next) transition(next);
 }
 
 const char* ScreenManager::handleInput(feedme::ports::TapEvent ev) {

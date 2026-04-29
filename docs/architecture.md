@@ -42,8 +42,14 @@ flowchart LR
 *display* state, but four orthogonal forces pulled the codebase into the
 shape it has:
 
-1. **Two people, one cat** → state must outlive any single device's RAM, so a
-   small backend acts as the source of truth.
+1. **A household with N users feeding N cats** → exactly one household, 1..N
+   devices (today 1, but `deviceId` is passed everywhere so multi-device is
+   a backend change only), 1..N users, 1..N cats. UI never offers selectors
+   for entities of cardinality 1 — see
+   [handoff.md § "Entities: household, devices, users, cats"](../handoff.md)
+   for the per-screen scope table and the backward-compatible D1 evolution.
+   State must outlive any single device's RAM, so a small backend acts as
+   the source of truth.
 2. **No hardware in front of you most of the time** → a simulator + a web
    mockup let UX work happen on a laptop.
 3. **Pure logic doesn't need the chip** → the mood/ring math is tested as

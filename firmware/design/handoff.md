@@ -9,6 +9,8 @@ Two surfaces share one product brain:
 
 Both pull from the same silhouette set in `cats4/` (twelve poses, each as a black PNG and a `-white.png` inverted PNG) and share the same Aubergine palette.
 
+> **Entities.** Single household; 1..N devices (today: 1, but every API call already carries `deviceId`); 1..N users; 1..N cats. Names like **Mochi** (cat) and **Andrey** / **Masha** (users) in the workflows below are placeholders for whichever cat / user is active at runtime. **Adaptive UI rule:** screens never offer a selector for an entity with only one option — a 1-cat / 1-user household never sees "which cat?" / "by whom?". Full scope-per-state table and the back-compat backend plan live in [`handoff.md` § "Entities: household, devices, users, cats"](../../handoff.md).
+
 ---
 
 ## 1. Mood → cat mapping (locked)

@@ -41,6 +41,14 @@ public:
     virtual void begin() = 0;
     virtual void onEvent(Listener listener) = 0;
     virtual void poll() = 0;  // call from loop()
+
+    // Continuous press state — true while the physical input is engaged
+    // (button down / finger on glass). LockConfirmView polls this each
+    // render to detect release during the hold-to-confirm window, since
+    // the discrete TapEvent stream only fires LongPress/LongTouch once
+    // at the 600 ms threshold and gives no release signal afterwards.
+    // Default is false so adapters that don't need this stay correct.
+    virtual bool isPressed() const { return false; }
 };
 
 }  // namespace feedme::ports
