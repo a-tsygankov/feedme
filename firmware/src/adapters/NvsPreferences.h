@@ -49,6 +49,9 @@ public:
     int  getTimeZoneOffsetMin(int defaultValue) override;
     void setTimeZoneOffsetMin(int value) override;
 
+    int  getActiveCatIdx(int defaultValue) override;
+    void setActiveCatIdx(int value) override;
+
     int  getUserCount(int defaultValue) override;
     void setUserCount(int value) override;
     int  getUserId   (int slot, int defaultValue) override;
@@ -83,6 +86,7 @@ private:
     static constexpr const char* KEY_CAT_COUNT        = "catN";
     static constexpr const char* KEY_USER_COUNT       = "userN";
     static constexpr const char* KEY_TZ_OFFSET_MIN    = "tzMin";
+    static constexpr const char* KEY_ACTIVE_CAT_IDX   = "actCat";
     // Wi-Fi creds + household id — Phase 2.4 captive portal.
     static constexpr const char* KEY_WIFI_SSID        = "wSsid";
     static constexpr const char* KEY_WIFI_PASS        = "wPass";

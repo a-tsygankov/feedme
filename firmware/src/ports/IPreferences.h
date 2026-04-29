@@ -79,6 +79,14 @@ public:
     virtual int  getTimeZoneOffsetMin(int defaultValue) = 0;
     virtual void setTimeZoneOffsetMin(int value) = 0;
 
+    // Active cat slot — which cat the views currently route their
+    // tunables and per-cat state through. Persisted so multi-cat
+    // households don't reset to slot 0 every reboot. Range 0..N-1
+    // where N = catCount; main.cpp clamps on load if N has shrunk
+    // (cat removed) since the last save.
+    virtual int  getActiveCatIdx(int defaultValue) = 0;
+    virtual void setActiveCatIdx(int value) = 0;
+
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may
     // use the same device (per handoff.md § "Entities…", clarified

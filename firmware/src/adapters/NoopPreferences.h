@@ -121,6 +121,9 @@ public:
     int  getTimeZoneOffsetMin(int d) override { return tzHasValue_ ? tzMin_ : d; }
     void setTimeZoneOffsetMin(int v) override { tzMin_ = v; tzHasValue_ = true; }
 
+    int  getActiveCatIdx(int d) override { return activeCatHasValue_ ? activeCatIdx_ : d; }
+    void setActiveCatIdx(int v) override { activeCatIdx_ = v; activeCatHasValue_ = true; }
+
     int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
     void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
     int  getUserId(int slot, int d) override {
@@ -192,6 +195,8 @@ private:
     bool    catSchedSet_[4][4] = {{false}};
     int     tzMin_       = 0;
     bool    tzHasValue_  = false;
+    int     activeCatIdx_      = 0;
+    bool    activeCatHasValue_ = false;
 };
 
 }  // namespace feedme::adapters

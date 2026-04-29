@@ -66,11 +66,11 @@ public:
     }
 
     // Active cat — the one whose per-cat tunables (portion, schedule,
-    // threshold) are currently routed into the views. Today defaults
-    // to slot 0; when a cat-selector lands (planned: long-rotate from
-    // Idle for N≥2 households), it sets this. Not persisted in v0 —
-    // each boot starts on the first cat; flip to persisted once the
-    // selector ships.
+    // threshold) are currently routed into the views. Set by the
+    // IdleView cat-selector (rotate when N≥2). Persisted to NVS by
+    // main.cpp's tick loop on change so multi-cat households don't
+    // reset to slot 0 every reboot. Clamp on load handles the case
+    // where the previously-active cat was removed.
     int  activeCatIdx() const { return (count_ > 0) ? activeCatIdx_ : -1; }
     void setActiveCatIdx(int i) {
         if (i < 0 || i >= count_) return;

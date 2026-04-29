@@ -355,6 +355,13 @@ void setup() {
                 }
             }
         }
+        // Restore last active cat. Clamps to a valid slot in case the
+        // roster shrank (cat removed since the last save). Falls back
+        // to slot 0 silently — the worst case is one extra rotate.
+        const int storedActive = prefs.getActiveCatIdx(0);
+        if (storedActive >= 0 && storedActive < roster.count()) {
+            roster.setActiveCatIdx(storedActive);
+        }
     }
 
     // User roster — same load + seed + persist-on-first-run pattern.
@@ -541,6 +548,19 @@ void loop() {
             for (int i = 0; i < users.count(); ++i) {
                 prefs.setUserId  (i, users.at(i).id);
                 prefs.setUserName(i, users.at(i).name);
+            }
+        }
+        // Active cat — persisted independently of the roster's dirty
+        // flag so the IdleView selector spinning between cats doesn't
+        // re-write the entire roster every tick. Tracks last-saved
+        // value here; NVS putInt is itself a no-op when the stored
+        // value matches, but skipping the call avoids the read+compare.
+        {
+            static int lastSavedActive = -1;
+            const int cur = display.roster().activeCatIdx();
+            if (cur >= 0 && cur != lastSavedActive) {
+                prefs.setActiveCatIdx(cur);
+                lastSavedActive = cur;
             }
         }
 
