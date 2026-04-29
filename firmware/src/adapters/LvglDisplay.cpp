@@ -114,6 +114,7 @@ void LvglDisplay::buildScene() {
     usersListView_.setRoster(&userRoster_);
     feedConfirmView_.setUserRoster(&userRoster_);
     feederPickerView_.setRoster(&userRoster_);
+    fedView_.setUserRoster(&userRoster_);
     // settingsView_.setCoordinator() and thresholdEditView_.setCoordinator()
     // are called from main.cpp after DisplayCoordinator is constructed.
     // settingsView_.setNetwork() is called from main.cpp once network exists.

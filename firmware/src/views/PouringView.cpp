@@ -153,9 +153,10 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
                 feeding_->logFeeding(owner, sel);
             }
         }
-        // Reset the transient picker selection so the next feed starts
-        // fresh — devices are shared, no remembered "current user".
-        if (users_) users_->clearCurrentFeeder();
+        // Picker clear deferred to FedView::onLeave so the "fed by
+        // Alice" attribution there can still read currentFeederName().
+        // Devices are shared — there's no remembered "current user"
+        // between feeds, even back-to-back ones.
     }
 }
 

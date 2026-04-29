@@ -40,18 +40,33 @@ void FedView::build(lv_obj_t* parent) {
     footLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(footLbl_, lv_color_hex(kTheme.dim), 0);
     lv_obj_set_style_text_font(footLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(footLbl_, "next  13:00");
+    lv_label_set_text(footLbl_, "");
     lv_obj_align(footLbl_, LV_ALIGN_BOTTOM_MID, 0, -18);
 }
 
 void FedView::onEnter() {
     enteredMs_ = millis();
     dismissed_ = false;
+    // "fed by Alice" attribution for multi-user households. Single-user
+    // (silent default) shows nothing — the primary user is implicit
+    // and the line would be visual noise. PouringView leaves the
+    // picker selection set; we consume it on leave (below).
+    if (users_ && users_->count() >= 2) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), "by  %s", users_->currentFeederName());
+        lv_label_set_text(footLbl_, buf);
+    } else {
+        lv_label_set_text(footLbl_, "");
+    }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void FedView::onLeave() {
     lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
+    // Reset transient picker state so the next feed starts fresh.
+    // Devices are shared — there's no remembered "current user"
+    // between feeds, even back-to-back ones.
+    if (users_) users_->clearCurrentFeeder();
 }
 
 void FedView::render(const feedme::ports::DisplayFrame&) {
