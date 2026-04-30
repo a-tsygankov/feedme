@@ -195,6 +195,13 @@ public:
         dirty_ = true;
     }
 
+    void setAvatarColor(int i, uint32_t color) {
+        if (i < 0 || i >= count_) return;
+        if (cats_[i].avatarColor == color) return;
+        cats_[i].avatarColor = color;
+        dirty_ = true;
+    }
+
     // Aggregates roster-level dirties (add/setName/setSlug) and per-cat
     // tunable dirties (PortionState, soon Schedule + Threshold). Call
     // each service tick; persistence walks the roster + per-cat fields.
