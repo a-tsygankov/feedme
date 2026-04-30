@@ -47,6 +47,7 @@ private:
     lv_obj_t* catImg_     = nullptr;
     lv_obj_t* titleLbl_   = nullptr;
     lv_obj_t* progressLbl_ = nullptr;
+    lv_obj_t* byLbl_      = nullptr;   // "by Alice" — multi-user only
     lv_obj_t* hintLbl_    = nullptr;
 
     uint32_t startMs_     = 0;

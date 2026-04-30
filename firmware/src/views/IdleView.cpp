@@ -42,11 +42,13 @@ void IdleView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_font(kickerLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(kickerLbl_, "");
     // Round-screen safe width: at y≈70 the chord across a 240 px circle
-    // is ~218 px. Cap at 200 (with internal centring) so long combos
-    // like "Sebastian · fed 4h 23m ago by Christopher" truncate with
-    // an ellipsis rather than running off the bezel.
+    // is ~218 px. Cap at 200 (with internal centring). Long combos like
+    // "Sebastian · fed 4h 23m ago by Christopher" scroll smoothly
+    // (LONG_SCROLL_CIRCULAR, no pause) so the user can read the full
+    // attribution without losing information to truncation.
     lv_obj_set_width(kickerLbl_, 200);
-    lv_label_set_long_mode(kickerLbl_, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(kickerLbl_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_anim_speed(kickerLbl_, 25, 0);  // px/sec — slow + readable
     lv_obj_set_style_text_align(kickerLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(kickerLbl_, LV_ALIGN_TOP_MID, 0, 70);
 
@@ -58,10 +60,13 @@ void IdleView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(footerLbl_, lv_color_hex(kTheme.dim), 0);
     lv_obj_set_style_text_font(footerLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(footerLbl_, "next  13:00  lunch");
-    // At y≈218 (BOTTOM_MID -22) the chord is only ~138 px. Cap at 140
-    // so "next 22:00 breakfast" trims rather than clipping the corners.
+    // At y≈218 (BOTTOM_MID -22) the chord is only ~138 px. Cap at 140;
+    // long forms like "next 22:00 breakfast" scroll instead of trimming
+    // — same pattern as the kicker so both top/bottom labels keep all
+    // information accessible on the round screen.
     lv_obj_set_width(footerLbl_, 140);
-    lv_label_set_long_mode(footerLbl_, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(footerLbl_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_anim_speed(footerLbl_, 25, 0);
     lv_obj_set_style_text_align(footerLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(footerLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }

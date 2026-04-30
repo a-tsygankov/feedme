@@ -93,6 +93,17 @@ void PouringView::build(lv_obj_t* parent) {
     lv_label_set_text(progressLbl_, "0 g of 40");
     lv_obj_align(progressLbl_, LV_ALIGN_CENTER, 0, 36);
 
+    // "by Alice" attribution — only meaningful for multi-user homes;
+    // hidden when N<=1 (the primary user is implicit, line would be
+    // visual noise). Set in onEnter from the picker selection (which
+    // was made on FeederPickerView before we got here, and stays valid
+    // through Pouring + FedView until FedView::onLeave clears it).
+    byLbl_ = lv_label_create(root_);
+    lv_obj_set_style_text_color(byLbl_, lv_color_hex(kTheme.faint), 0);
+    lv_obj_set_style_text_font(byLbl_, &lv_font_montserrat_14, 0);
+    lv_label_set_text(byLbl_, "");
+    lv_obj_align(byLbl_, LV_ALIGN_CENTER, 0, 56);
+
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
@@ -119,6 +130,18 @@ void PouringView::onEnter() {
                 lv_color_hex(roster_->at(sel).avatarColor), 0);
             lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
         }
+    }
+    // "by X" — only show when the household has 2+ users. Single-user
+    // homes silently use the primary user; the line would just clutter.
+    // Mid-pour the label is read-only — changing the attribution after
+    // the cat is already eating doesn't make sense (the picker before
+    // pour is the editable step).
+    if (users_ && users_->count() >= 2) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), "by  %s", users_->currentFeederName());
+        lv_label_set_text(byLbl_, buf);
+    } else {
+        lv_label_set_text(byLbl_, "");
     }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
