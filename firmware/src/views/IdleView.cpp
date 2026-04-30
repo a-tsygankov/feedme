@@ -135,7 +135,7 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
     } else {
         snprintf(kickerBuf, sizeof(kickerBuf), "%s", ageBuf);
     }
-    lv_label_set_text(kickerLbl_, kickerBuf);
+    setScrollingText(kickerLbl_, kickerBuf);
 
     // Footer derived from active cat's schedule. currentSlot wraps to
     // tomorrow's first meal once today's are all past — the JSX-style
@@ -161,7 +161,7 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
     } else {
         snprintf(footerBuf, sizeof(footerBuf), "next  -");
     }
-    lv_label_set_text(footerLbl_, footerBuf);
+    setScrollingText(footerLbl_, footerBuf);
 
     lastFrame_            = frame;
     lastDrawnActiveIdx_   = activeIdx;
