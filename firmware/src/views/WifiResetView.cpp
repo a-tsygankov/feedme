@@ -1,5 +1,6 @@
 #include "views/WifiResetView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -55,18 +56,14 @@ void WifiResetView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(ssidLbl_, lv_color_hex(kTheme.accent), 0);
     lv_obj_set_style_text_font(ssidLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(ssidLbl_, "");
-    lv_obj_set_width(ssidLbl_, 200);
-    lv_label_set_long_mode(ssidLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(ssidLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(ssidLbl_, 200);
     lv_obj_align(ssidLbl_, LV_ALIGN_TOP_MID, 0, 96);
 
     ipLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(ipLbl_, lv_color_hex(kTheme.dim), 0);
     lv_obj_set_style_text_font(ipLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(ipLbl_, "");
-    lv_obj_set_width(ipLbl_, 200);
-    lv_label_set_long_mode(ipLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(ipLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(ipLbl_, 200);
     lv_obj_align(ipLbl_, LV_ALIGN_TOP_MID, 0, 122);
 
     // Signal: 4 bars rendered with U+2588 (full block) — Montserrat
@@ -95,9 +92,7 @@ void WifiResetView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(hint_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hint_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hint_, "PRESS  OK   TURN  X");
-    lv_obj_set_width(hint_, 140);
-    lv_label_set_long_mode(hint_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(hint_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(hint_, 140);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }
 

@@ -1,5 +1,6 @@
 #include "views/QuietHoursEditView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <stdio.h>
@@ -55,9 +56,7 @@ void QuietHoursEditView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(hint_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hint_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hint_, "TURN ADJ  PRESS NEXT");
-    lv_obj_set_width(hint_, 160);
-    lv_label_set_long_mode(hint_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(hint_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(hint_, 160);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -24);
 }
 

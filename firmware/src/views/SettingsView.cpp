@@ -1,6 +1,7 @@
 #include "views/SettingsView.h"
 
 #include "application/DisplayCoordinator.h"
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -117,9 +118,7 @@ void SettingsView::build(lv_obj_t* parent) {
         lv_obj_set_style_text_font(rowValues_[i], &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(rowValues_[i], lv_color_hex(kTheme.dim), 0);
         lv_label_set_text(rowValues_[i], "");
-        lv_obj_set_width(rowValues_[i], 95);
-        lv_label_set_long_mode(rowValues_[i], LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_align(rowValues_[i], LV_TEXT_ALIGN_RIGHT, 0);
+        applyClippedLabel(rowValues_[i], 95, LV_TEXT_ALIGN_RIGHT);
         lv_obj_align(rowValues_[i], LV_ALIGN_RIGHT_MID, 0, 0);
     }
 }

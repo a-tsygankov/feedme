@@ -1,6 +1,7 @@
 #include "views/FeedConfirmView.h"
 
 #include "assets/cats/CatSlug.h"
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <stdio.h>
@@ -89,9 +90,7 @@ void FeedConfirmView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hintLbl_, "TAP ADJ  PRESS POUR");
-    lv_obj_set_width(hintLbl_, 160);
-    lv_label_set_long_mode(hintLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(hintLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(hintLbl_, 160);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }
 
