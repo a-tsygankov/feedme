@@ -11,10 +11,13 @@
 #include "domain/MealSchedule.h"
 #include "domain/Mood.h"
 #include "domain/MoodCalculator.h"
+#include "domain/PortionState.h"
 #include "domain/QuietWindow.h"
 #include "domain/RingProgress.h"
+#include "domain/SleepTimeout.h"
 #include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
+#include "domain/WakeTime.h"
 
 using namespace feedme::domain;
 
@@ -507,6 +510,245 @@ void test_quiet_window_contains_empty_window_never_matches() {
     TEST_ASSERT_FALSE(q.contains(23, 59));
 }
 
+// ── SleepTimeout ──────────────────────────────────────────────────────────
+
+void test_sleep_timeout_default_is_5_min() {
+    SleepTimeout s;
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::DEFAULT_MIN, s.minutes());
+    TEST_ASSERT_TRUE(s.enabled());
+}
+
+void test_sleep_timeout_zero_disables() {
+    SleepTimeout s;
+    s.set(0);
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());
+    TEST_ASSERT_FALSE(s.enabled());
+}
+
+void test_sleep_timeout_set_marks_dirty_only_on_change() {
+    SleepTimeout s;
+    s.set(SleepTimeout::DEFAULT_MIN);   // already at default
+    TEST_ASSERT_FALSE(s.consumeDirty());
+    s.set(10);
+    TEST_ASSERT_EQUAL_INT(10, s.minutes());
+    TEST_ASSERT_TRUE(s.consumeDirty());
+    TEST_ASSERT_FALSE(s.consumeDirty()); // cleared on read
+}
+
+void test_sleep_timeout_clamps_below_zero() {
+    SleepTimeout s;
+    s.set(-5);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MIN_MIN, s.minutes());  // 0
+}
+
+void test_sleep_timeout_clamps_above_max() {
+    SleepTimeout s;
+    s.set(9999);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());  // 60
+}
+
+void test_sleep_timeout_bump_up_and_down() {
+    SleepTimeout s;
+    s.set(10);
+    s.consumeDirty();
+    s.bumpUp();
+    TEST_ASSERT_EQUAL_INT(11, s.minutes());
+    s.bumpDown();
+    s.bumpDown();
+    TEST_ASSERT_EQUAL_INT(9, s.minutes());
+}
+
+void test_sleep_timeout_bump_down_past_zero_clamps() {
+    SleepTimeout s;
+    s.set(0);
+    s.bumpDown();
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());  // can't go negative
+    TEST_ASSERT_FALSE(s.enabled());
+}
+
+void test_sleep_timeout_bump_up_past_max_clamps() {
+    SleepTimeout s;
+    s.set(SleepTimeout::MAX_MIN);
+    s.bumpUp();
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());
+}
+
+void test_sleep_timeout_load_from_storage_doesnt_mark_dirty() {
+    SleepTimeout s;
+    s.loadFromStorage(15);
+    TEST_ASSERT_EQUAL_INT(15, s.minutes());
+    TEST_ASSERT_FALSE(s.consumeDirty());
+}
+
+void test_sleep_timeout_load_from_storage_clamps_garbage() {
+    SleepTimeout s;
+    s.loadFromStorage(-100);   // corrupt NVS reading
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());
+    s.loadFromStorage(1000);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());
+}
+
+// ── WakeTime ──────────────────────────────────────────────────────────────
+
+void test_wake_time_defaults() {
+    WakeTime w;
+    TEST_ASSERT_EQUAL_INT(WakeTime::DEFAULT_HOUR,   w.hour());
+    TEST_ASSERT_EQUAL_INT(WakeTime::DEFAULT_MINUTE, w.minute());
+}
+
+void test_wake_time_set_marks_dirty_only_on_change() {
+    WakeTime w;
+    w.setHour(WakeTime::DEFAULT_HOUR);  // already there
+    TEST_ASSERT_FALSE(w.consumeDirty());
+    w.setHour(8);
+    TEST_ASSERT_EQUAL_INT(8, w.hour());
+    TEST_ASSERT_TRUE(w.consumeDirty());
+    TEST_ASSERT_FALSE(w.consumeDirty());
+}
+
+void test_wake_time_hour_wraps() {
+    WakeTime w;
+    w.setHour(25);                     // wraps to 1
+    TEST_ASSERT_EQUAL_INT(1, w.hour());
+    w.setHour(-3);                     // wraps to 21
+    TEST_ASSERT_EQUAL_INT(21, w.hour());
+}
+
+void test_wake_time_minute_snaps_to_step() {
+    WakeTime w;
+    w.setMinute(17);                   // not on a 5-min boundary
+    TEST_ASSERT_EQUAL_INT(15, w.minute());  // snapped down
+    w.setMinute(33);
+    TEST_ASSERT_EQUAL_INT(30, w.minute());
+    w.setMinute(60);                   // wraps to 0
+    TEST_ASSERT_EQUAL_INT(0, w.minute());
+}
+
+void test_wake_time_bump_minute_moves_by_step() {
+    WakeTime w;
+    w.setMinute(30);
+    w.consumeDirty();
+    w.bumpMinute(+1);
+    TEST_ASSERT_EQUAL_INT(35, w.minute());
+    w.bumpMinute(-2);
+    TEST_ASSERT_EQUAL_INT(25, w.minute());
+}
+
+void test_wake_time_bump_minute_wraps() {
+    WakeTime w;
+    w.setMinute(55);
+    w.bumpMinute(+2);                  // 55 + 10 = 65 → 5
+    TEST_ASSERT_EQUAL_INT(5, w.minute());
+}
+
+void test_wake_time_bump_hour_wraps_at_midnight() {
+    WakeTime w;
+    w.setHour(23);
+    w.bumpHour(+1);
+    TEST_ASSERT_EQUAL_INT(0, w.hour());
+    w.bumpHour(-1);
+    TEST_ASSERT_EQUAL_INT(23, w.hour());
+}
+
+void test_wake_time_load_from_storage_clears_dirty() {
+    WakeTime w;
+    w.loadFromStorage(7, 45);
+    TEST_ASSERT_EQUAL_INT(7,  w.hour());
+    TEST_ASSERT_EQUAL_INT(45, w.minute());
+    TEST_ASSERT_FALSE(w.consumeDirty());
+}
+
+void test_wake_time_load_clamps_garbage() {
+    WakeTime w;
+    w.loadFromStorage(100, 999);
+    // 100 % 24 = 4; 999 → snap (999/5*5=995) → 995 % 60 = 35
+    TEST_ASSERT_EQUAL_INT(4,  w.hour());
+    TEST_ASSERT_EQUAL_INT(35, w.minute());
+}
+
+// ── PortionState ──────────────────────────────────────────────────────────
+
+void test_portion_state_default_is_DEFAULT_G() {
+    PortionState p;
+    TEST_ASSERT_EQUAL_INT(PortionState::DEFAULT_G, p.grams());
+}
+
+void test_portion_state_explicit_initial_is_clamped() {
+    PortionState p(999);
+    TEST_ASSERT_EQUAL_INT(PortionState::MAX_G, p.grams());
+    PortionState q(-50);
+    TEST_ASSERT_EQUAL_INT(PortionState::MIN_G, q.grams());
+}
+
+void test_portion_state_set_returns_true_on_change() {
+    PortionState p;
+    TEST_ASSERT_FALSE(p.set(PortionState::DEFAULT_G)); // unchanged
+    TEST_ASSERT_TRUE(p.set(50));                       // changed
+    TEST_ASSERT_EQUAL_INT(50, p.grams());
+}
+
+void test_portion_state_set_marks_dirty_only_on_change() {
+    PortionState p;
+    p.set(PortionState::DEFAULT_G);
+    TEST_ASSERT_FALSE(p.consumeDirty());
+    p.set(20);
+    TEST_ASSERT_TRUE(p.consumeDirty());
+    TEST_ASSERT_FALSE(p.consumeDirty());
+}
+
+void test_portion_state_clamps_below_min() {
+    PortionState p;
+    p.set(-10);
+    TEST_ASSERT_EQUAL_INT(PortionState::MIN_G, p.grams());
+}
+
+void test_portion_state_clamps_above_max() {
+    PortionState p;
+    p.set(9999);
+    TEST_ASSERT_EQUAL_INT(PortionState::MAX_G, p.grams());
+}
+
+void test_portion_state_bump_up_and_down_step() {
+    PortionState p;
+    p.set(40);
+    p.consumeDirty();
+    TEST_ASSERT_TRUE(p.bumpUp());
+    TEST_ASSERT_EQUAL_INT(40 + PortionState::STEP_G, p.grams());
+    TEST_ASSERT_TRUE(p.bumpDown());
+    TEST_ASSERT_TRUE(p.bumpDown());
+    TEST_ASSERT_EQUAL_INT(40 - PortionState::STEP_G, p.grams());
+}
+
+void test_portion_state_bump_at_max_no_change() {
+    PortionState p;
+    p.set(PortionState::MAX_G);
+    p.consumeDirty();
+    TEST_ASSERT_FALSE(p.bumpUp());                     // already at max
+    TEST_ASSERT_FALSE(p.consumeDirty());
+}
+
+void test_portion_state_bump_at_min_no_change() {
+    PortionState p;
+    p.set(PortionState::MIN_G);
+    p.consumeDirty();
+    TEST_ASSERT_FALSE(p.bumpDown());                   // already at min
+}
+
+void test_portion_state_load_from_storage_clears_dirty() {
+    PortionState p;
+    p.loadFromStorage(35);
+    TEST_ASSERT_EQUAL_INT(35, p.grams());
+    TEST_ASSERT_FALSE(p.consumeDirty());
+}
+
+void test_portion_state_load_clamps_garbage() {
+    PortionState p;
+    p.loadFromStorage(-100);
+    TEST_ASSERT_EQUAL_INT(PortionState::MIN_G, p.grams());
+    p.loadFromStorage(500);
+    TEST_ASSERT_EQUAL_INT(PortionState::MAX_G, p.grams());
+}
+
 // ── EventId ───────────────────────────────────────────────────────────────
 
 void test_event_id_length_is_32_hex_chars() {
@@ -603,6 +845,39 @@ int main(int, char**) {
     RUN_TEST(test_quiet_window_bump_hour_wraps);
     RUN_TEST(test_quiet_window_contains_same_day_window);
     RUN_TEST(test_quiet_window_contains_empty_window_never_matches);
+
+    RUN_TEST(test_sleep_timeout_default_is_5_min);
+    RUN_TEST(test_sleep_timeout_zero_disables);
+    RUN_TEST(test_sleep_timeout_set_marks_dirty_only_on_change);
+    RUN_TEST(test_sleep_timeout_clamps_below_zero);
+    RUN_TEST(test_sleep_timeout_clamps_above_max);
+    RUN_TEST(test_sleep_timeout_bump_up_and_down);
+    RUN_TEST(test_sleep_timeout_bump_down_past_zero_clamps);
+    RUN_TEST(test_sleep_timeout_bump_up_past_max_clamps);
+    RUN_TEST(test_sleep_timeout_load_from_storage_doesnt_mark_dirty);
+    RUN_TEST(test_sleep_timeout_load_from_storage_clamps_garbage);
+
+    RUN_TEST(test_wake_time_defaults);
+    RUN_TEST(test_wake_time_set_marks_dirty_only_on_change);
+    RUN_TEST(test_wake_time_hour_wraps);
+    RUN_TEST(test_wake_time_minute_snaps_to_step);
+    RUN_TEST(test_wake_time_bump_minute_moves_by_step);
+    RUN_TEST(test_wake_time_bump_minute_wraps);
+    RUN_TEST(test_wake_time_bump_hour_wraps_at_midnight);
+    RUN_TEST(test_wake_time_load_from_storage_clears_dirty);
+    RUN_TEST(test_wake_time_load_clamps_garbage);
+
+    RUN_TEST(test_portion_state_default_is_DEFAULT_G);
+    RUN_TEST(test_portion_state_explicit_initial_is_clamped);
+    RUN_TEST(test_portion_state_set_returns_true_on_change);
+    RUN_TEST(test_portion_state_set_marks_dirty_only_on_change);
+    RUN_TEST(test_portion_state_clamps_below_min);
+    RUN_TEST(test_portion_state_clamps_above_max);
+    RUN_TEST(test_portion_state_bump_up_and_down_step);
+    RUN_TEST(test_portion_state_bump_at_max_no_change);
+    RUN_TEST(test_portion_state_bump_at_min_no_change);
+    RUN_TEST(test_portion_state_load_from_storage_clears_dirty);
+    RUN_TEST(test_portion_state_load_clamps_garbage);
 
     RUN_TEST(test_event_id_length_is_32_hex_chars);
     RUN_TEST(test_event_id_only_hex_chars);
