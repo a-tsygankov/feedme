@@ -24,13 +24,30 @@ struct PaletteColor {
     const char* name;  // for diagnostics / future "pick a color" UI
 };
 
+// ── TEMPORARY BOLD CAT PALETTE ────────────────────────────────────────
+// The original tints (Linen, Cup Cake, Alice Blue, Magnolia, Bubbles,
+// Oyster White) were specified by the design but on the GC9A01's
+// backlit panel they all read as "off-white" — visually
+// indistinguishable from each other and from a true white silhouette.
+// Hard to tell whether the recolor is even firing.
+//
+// While we work through cat-related scenarios (avatar tint in
+// FeedConfirm / Pouring / FedView, name tint in lists), use bold
+// saturated colors so any wiring bug is obvious. Once all cat color
+// paths are verified end-to-end, REVERT this block to the original
+// pastel set:
+//
+//   { 0xF3EAD3, "Linen"        },
+//   { 0xEBF6F7, "Cup Cake"     },
+//   { 0xF0F8FF, "Alice Blue"   },
+//   { 0xF8F4FF, "Magnolia"     },
+//   { 0xE7FEFF, "Bubbles"      },
+//   { 0xE3DFD2, "Oyster White" },
 constexpr PaletteColor kCatPalette[] = {
-    { 0xF3EAD3, "Linen"        },
-    { 0xEBF6F7, "Cup Cake"     },
-    { 0xF0F8FF, "Alice Blue"   },
-    { 0xF8F4FF, "Magnolia"     },
-    { 0xE7FEFF, "Bubbles"      },
-    { 0xE3DFD2, "Oyster White" },
+    { 0x4CAF50, "Green"   },
+    { 0x2196F3, "Blue"    },
+    { 0xE91E63, "Magenta" },
+    { 0x8B4513, "Brown"   },
 };
 constexpr int kCatPaletteSize =
     sizeof(kCatPalette) / sizeof(kCatPalette[0]);
