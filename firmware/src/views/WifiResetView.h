@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ports/INetwork.h"
 #include "views/IView.h"
 
 namespace feedme::views {
@@ -23,6 +24,10 @@ public:
     using ResetCallback = void (*)();
 
     void setOnConfirm(ResetCallback cb) { onConfirm_ = cb; }
+    // Read-only access to current connection state — surfaced as
+    // SSID / IP / RSSI lines on the confirmation screen so the user
+    // sees what they're switching FROM before confirming.
+    void setNetwork(const feedme::ports::INetwork* net) { network_ = net; }
 
     const char* name()   const override { return "wifiReset"; }
     const char* parent() const override { return "settings"; }
@@ -34,10 +39,14 @@ public:
 
 private:
     ResetCallback onConfirm_ = nullptr;
+    const feedme::ports::INetwork* network_ = nullptr;
 
     lv_obj_t* root_      = nullptr;
     lv_obj_t* iconLbl_   = nullptr;
     lv_obj_t* titleLbl_  = nullptr;
+    lv_obj_t* ssidLbl_   = nullptr;   // current network name
+    lv_obj_t* ipLbl_     = nullptr;   // current IP
+    lv_obj_t* rssiLbl_   = nullptr;   // signal strength as bars + dBm
     lv_obj_t* bodyLbl_   = nullptr;
     lv_obj_t* hint_      = nullptr;
 };

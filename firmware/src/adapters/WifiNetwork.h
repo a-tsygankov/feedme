@@ -58,6 +58,11 @@ public:
                     uint8_t catId,
                     const std::string& eventId) override;
 
+    // Connection inspection — empty / 0 if Wi-Fi isn't associated.
+    std::string ssid()      const override;
+    int         rssi()      const override;
+    std::string ipAddress() const override;
+
 private:
     bool postEvent(const std::string& by, const char* type, int durationSec,
                    uint8_t catId, const std::string& eventId);

@@ -109,17 +109,23 @@ void SettingsView::build(lv_obj_t* parent) {
         lv_label_set_text(rowLabels_[i], kItems[i].label);
         lv_obj_align(rowLabels_[i], LV_ALIGN_LEFT_MID, ICON_DIAM_PX + 12, 0);
 
-        // Right-aligned value label.
+        // Right-aligned value label. Cap to ~95 px and truncate with
+        // an ellipsis so long values (mostly long SSIDs on the Wi-Fi
+        // row) don't overrun the icon/label on the left.
         rowValues_[i] = lv_label_create(rowContainers_[i]);
         lv_obj_set_style_text_font(rowValues_[i], &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(rowValues_[i], lv_color_hex(kTheme.dim), 0);
         lv_label_set_text(rowValues_[i], "");
+        lv_obj_set_width(rowValues_[i], 95);
+        lv_label_set_long_mode(rowValues_[i], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(rowValues_[i], LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_align(rowValues_[i], LV_ALIGN_RIGHT_MID, 0, 0);
     }
 }
 
 void SettingsView::redraw() {
     const bool online    = network_ ? network_->isOnline() : false;
+    const std::string ssid = network_ ? network_->ssid() : std::string();
     const bool quietOn   = quiet_   ? quiet_->enabled()    : false;
     const int  wakeH     = wake_    ? wake_->hour()        : -1;
     const int  wakeM     = wake_    ? wake_->minute()      : -1;
@@ -132,6 +138,7 @@ void SettingsView::redraw() {
     const bool changed = firstRender_
                          || selectedIdx_ != lastDrawnIdx_
                          || online       != lastDrawnOnline_
+                         || ssid         != lastDrawnSsid_
                          || quietOn      != lastDrawnQuietEnabled_
                          || wakeH        != lastDrawnWakeHour_
                          || wakeM        != lastDrawnWakeMinute_
@@ -171,9 +178,21 @@ void SettingsView::redraw() {
         //   Quiet      → on / off (live from QuietWindow)
         //   Calibrate  → "" (no value)
         switch (i) {
-            case 0:
-                lv_label_set_text(rowValues_[i], online ? "online" : "offline");
+            case 0: {
+                // Wi-Fi: show actual SSID when associated, "offline"
+                // otherwise. Keeps the "what am I on?" answer in front
+                // of the user before they decide to switch. Long SSIDs
+                // truncate via the LONG_DOT mode set on the value
+                // label below.
+                if (online && !ssid.empty()) {
+                    lv_label_set_text(rowValues_[i], ssid.c_str());
+                } else if (online) {
+                    lv_label_set_text(rowValues_[i], "online");
+                } else {
+                    lv_label_set_text(rowValues_[i], "offline");
+                }
                 break;
+            }
             case 1: {
                 if (wake_) {
                     char buf[8];
@@ -250,6 +269,7 @@ void SettingsView::redraw() {
 
     lastDrawnIdx_              = selectedIdx_;
     lastDrawnOnline_           = online;
+    lastDrawnSsid_             = ssid;
     lastDrawnQuietEnabled_     = quietOn;
     lastDrawnWakeHour_         = wakeH;
     lastDrawnWakeMinute_       = wakeM;

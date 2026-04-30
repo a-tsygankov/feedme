@@ -8,6 +8,8 @@
 #include "ports/INetwork.h"
 #include "views/IView.h"
 
+#include <string>
+
 namespace feedme::application { class DisplayCoordinator; }
 
 namespace feedme::views {
@@ -65,6 +67,7 @@ private:
     int  selectedIdx_         = 0;
     int  lastDrawnIdx_        = -1;
     bool lastDrawnOnline_     = false;
+    std::string lastDrawnSsid_;       // re-render Wi-Fi row when SSID changes
     bool lastDrawnQuietEnabled_ = false;
     int  lastDrawnWakeHour_   = -1;
     int  lastDrawnWakeMinute_ = -1;

@@ -402,6 +402,7 @@ void setup() {
 #if !defined(SIMULATOR)
     display.wifiSwitchView().setPortal(&captivePortal);
 #endif
+    display.wifiResetView().setNetwork(&network);
     display.wifiResetView().setOnConfirm(+[]() {
         // In-place AP+STA: bring up the SoftAP alongside the existing
         // STA connection. Existing feed/snooze/mood state is preserved
