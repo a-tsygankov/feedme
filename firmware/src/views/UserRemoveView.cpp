@@ -1,4 +1,4 @@
-#include "views/CatRemoveView.h"
+#include "views/UserRemoveView.h"
 
 #include "views/Theme.h"
 
@@ -13,24 +13,23 @@ constexpr int ROW_SPACING_PX = 32;
 constexpr int LIST_PAD_X     = 28;
 }
 
-int CatRemoveView::rowCount() const {
+int UserRemoveView::rowCount() const {
     if (!roster_) return 1;  // just Cancel
     return 1 + roster_->count();
 }
 
-void CatRemoveView::rowText(int idx, char* buf, int bufLen) const {
+void UserRemoveView::rowText(int idx, char* buf, int bufLen) const {
     if (idx == 0) { snprintf(buf, bufLen, "Cancel"); return; }
     if (!roster_) { buf[0] = '\0'; return; }
     const int u = idx - 1;
     if (u < roster_->count()) {
-        const auto& c = roster_->at(u);
-        snprintf(buf, bufLen, "x %s", c.name);
+        snprintf(buf, bufLen, "x %s", roster_->at(u).name);
     } else {
         buf[0] = '\0';
     }
 }
 
-void CatRemoveView::build(lv_obj_t* parent) {
+void UserRemoveView::build(lv_obj_t* parent) {
     root_ = lv_obj_create(parent);
     lv_obj_set_size(root_, 240, 240);
     lv_obj_center(root_);
@@ -44,7 +43,7 @@ void CatRemoveView::build(lv_obj_t* parent) {
     header_ = lv_label_create(root_);
     lv_obj_set_style_text_color(header_, lv_color_hex(kTheme.accent), 0);
     lv_obj_set_style_text_font(header_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(header_, "REMOVE  CAT");
+    lv_label_set_text(header_, "REMOVE  USER");
     lv_obj_align(header_, LV_ALIGN_TOP_MID, 0, 30);
 
     for (int i = 0; i < MAX_VISIBLE_ROWS; ++i) {
@@ -64,7 +63,7 @@ void CatRemoveView::build(lv_obj_t* parent) {
     }
 }
 
-void CatRemoveView::redraw() {
+void UserRemoveView::redraw() {
     const int count = rowCount();
     if (!firstRender_
         && selectedIdx_ == lastDrawnIdx_
@@ -89,21 +88,20 @@ void CatRemoveView::redraw() {
         }
         lv_obj_set_style_opa(rows_[i], opa, 0);
 
+        // Selected user row → accent (the danger highlight). Non-
+        // selected user rows wear their own avatar tint so the user
+        // can identify which is which before highlighting one. Cancel
+        // (i==0) stays dim regardless. Mirrors CatRemoveView exactly.
         const bool isSel = (offset == 0);
-        // Selected cat row → accent (red would be more conventional for
-        // destructive but our palette doesn't have one — accent serves
-        // as "this will act"). Non-selected cat rows wear their own
-        // avatar tint so the user can identify which cat is which
-        // before highlighting one. Cancel row (i==0) stays dim.
-        const int  catIdx = i - 1;
-        const bool isCatRow = roster_
-                              && catIdx >= 0
-                              && catIdx < roster_->count();
+        const int  uIdx  = i - 1;
+        const bool isUserRow = roster_
+                               && uIdx >= 0
+                               && uIdx < roster_->count();
         uint32_t color = kTheme.dim;
         if (isSel && i != 0) {
             color = kTheme.accent;
-        } else if (isCatRow) {
-            color = roster_->at(catIdx).avatarColor;
+        } else if (isUserRow) {
+            color = roster_->at(uIdx).avatarColor;
         }
         lv_obj_set_style_text_color(labels_[i], lv_color_hex(color), 0);
 
@@ -117,21 +115,21 @@ void CatRemoveView::redraw() {
     firstRender_    = false;
 }
 
-void CatRemoveView::onEnter() {
-    selectedIdx_ = 0;  // default focus on Cancel — safer than a cat row
+void UserRemoveView::onEnter() {
+    selectedIdx_ = 0;  // default focus on Cancel — safer than a user row
     firstRender_ = true;
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
-void CatRemoveView::onLeave() {
+void UserRemoveView::onLeave() {
     lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
-void CatRemoveView::render(const feedme::ports::DisplayFrame&) {
+void UserRemoveView::render(const feedme::ports::DisplayFrame&) {
     redraw();
 }
 
-const char* CatRemoveView::handleInput(feedme::ports::TapEvent ev) {
+const char* UserRemoveView::handleInput(feedme::ports::TapEvent ev) {
     using E = feedme::ports::TapEvent;
     if (!roster_) return nullptr;
     const int N = rowCount();
@@ -145,18 +143,18 @@ const char* CatRemoveView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press: {
-            if (selectedIdx_ == 0) return "catsList";  // Cancel
-            const int catSlot = selectedIdx_ - 1;
-            if (catSlot < 0 || catSlot >= roster_->count()) return nullptr;
-            const uint8_t goneId = roster_->at(catSlot).id;
-            if (roster_->remove(catSlot)) {
-                Serial.printf("[cats] removed slot=%d id=%d (events under that "
-                              "id stay in storage as orphans)\n",
-                              catSlot, goneId);
+            if (selectedIdx_ == 0) return "usersList";  // Cancel
+            const int uSlot = selectedIdx_ - 1;
+            if (uSlot < 0 || uSlot >= roster_->count()) return nullptr;
+            const uint8_t goneId = roster_->at(uSlot).id;
+            if (roster_->remove(uSlot)) {
+                Serial.printf("[users] removed slot=%d id=%d (events under "
+                              "that user keep the gone id in `by`)\n",
+                              uSlot, goneId);
             } else {
-                Serial.println("[cats] remove refused — last cat protected");
+                Serial.println("[users] remove refused — last user protected");
             }
-            return "catsList";
+            return "usersList";
         }
         default:
             return nullptr;

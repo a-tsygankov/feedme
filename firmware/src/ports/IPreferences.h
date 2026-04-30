@@ -73,11 +73,23 @@ public:
     // cat (Breakfast / Lunch / Dinner / Treat).
     virtual int  getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) = 0;
     virtual void setCatScheduleHour(int catSlot, int mealSlot, int value) = 0;
+    // Per-cat avatar color, 0xRRGGBB. 0 = "not stored" → caller
+    // defaults to the round-robin Palette assignment.
+    virtual uint32_t getCatColor(int slot, uint32_t defaultValue) = 0;
+    virtual void     setCatColor(int slot, uint32_t value) = 0;
 
     // Local timezone offset in minutes (signed). 0 = UTC. Storage
     // unit matches TimeZone::offsetMin to round-trip cleanly.
     virtual int  getTimeZoneOffsetMin(int defaultValue) = 0;
     virtual void setTimeZoneOffsetMin(int value) = 0;
+
+    // Active cat slot — which cat the views currently route their
+    // tunables and per-cat state through. Persisted so multi-cat
+    // households don't reset to slot 0 every reboot. Range 0..N-1
+    // where N = catCount; main.cpp clamps on load if N has shrunk
+    // (cat removed) since the last save.
+    virtual int  getActiveCatIdx(int defaultValue) = 0;
+    virtual void setActiveCatIdx(int value) = 0;
 
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may
@@ -91,6 +103,26 @@ public:
     virtual void setUserId   (int slot, int value) = 0;
     virtual bool getUserName (int slot, char* buf, int bufLen) = 0;
     virtual void setUserName (int slot, const char* value) = 0;
+    // Per-user avatar color, 0xRRGGBB. Same 0-sentinel semantics as
+    // getCatColor.
+    virtual uint32_t getUserColor(int slot, uint32_t defaultValue) = 0;
+    virtual void     setUserColor(int slot, uint32_t value) = 0;
+
+    // Wi-Fi credentials + household id. Captive portal (Phase 2.4)
+    // captures these at first-time setup and stores them here. Empty
+    // SSID is the "no creds yet" sentinel — boot path uses it to
+    // pick between STA mode and captive-portal setup mode. Strings:
+    // caller passes a buffer; adapter copies up to bufLen (incl. NUL).
+    // Returns true if a stored value was found.
+    virtual bool getWifiSsid(char* buf, int bufLen) = 0;
+    virtual void setWifiSsid(const char* value) = 0;
+    virtual bool getWifiPass(char* buf, int bufLen) = 0;
+    virtual void setWifiPass(const char* value) = 0;
+    virtual bool getHid     (char* buf, int bufLen) = 0;
+    virtual void setHid     (const char* value) = 0;
+    // Drops Wi-Fi creds + hid in one shot — used by Wi-Fi reset to
+    // force the next boot into captive-portal setup mode.
+    virtual void clearWifiCreds() = 0;
 };
 
 }  // namespace feedme::ports

@@ -27,10 +27,18 @@ public:
     // pending-queue drain re-enqueues events whose post returned
     // false. The worker today returns just an ack, so we don't
     // bother bringing back a state — next fetchState picks it up.
-    virtual bool postFeed(const std::string& by, int64_t ts, uint8_t catId) = 0;
+    //
+    // `eventId` is a per-event UUID used as the backend's idempotency
+    // key (Phase 2.x). Events that get re-posted (timeout that the
+    // server actually processed → next-online drain replays) carry
+    // the same id and the backend silently dedups. Empty string
+    // disables the dedup hint.
+    virtual bool postFeed(const std::string& by, int64_t ts, uint8_t catId,
+                          const std::string& eventId) = 0;
 
     virtual bool postSnooze(const std::string& by, int64_t ts,
-                            int durationSec, uint8_t catId) = 0;
+                            int durationSec, uint8_t catId,
+                            const std::string& eventId) = 0;
 };
 
 }  // namespace feedme::ports

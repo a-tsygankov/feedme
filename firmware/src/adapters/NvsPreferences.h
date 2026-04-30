@@ -45,9 +45,14 @@ public:
     void    setCatThresholdSec(int slot, int64_t value) override;
     int     getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) override;
     void    setCatScheduleHour(int catSlot, int mealSlot, int value) override;
+    uint32_t getCatColor(int slot, uint32_t defaultValue) override;
+    void     setCatColor(int slot, uint32_t value) override;
 
     int  getTimeZoneOffsetMin(int defaultValue) override;
     void setTimeZoneOffsetMin(int value) override;
+
+    int  getActiveCatIdx(int defaultValue) override;
+    void setActiveCatIdx(int value) override;
 
     int  getUserCount(int defaultValue) override;
     void setUserCount(int value) override;
@@ -55,6 +60,16 @@ public:
     void setUserId   (int slot, int value) override;
     bool getUserName (int slot, char* buf, int bufLen) override;
     void setUserName (int slot, const char* value) override;
+    uint32_t getUserColor(int slot, uint32_t defaultValue) override;
+    void     setUserColor(int slot, uint32_t value) override;
+
+    bool getWifiSsid(char* buf, int bufLen) override;
+    void setWifiSsid(const char* value) override;
+    bool getWifiPass(char* buf, int bufLen) override;
+    void setWifiPass(const char* value) override;
+    bool getHid     (char* buf, int bufLen) override;
+    void setHid     (const char* value) override;
+    void clearWifiCreds() override;
 
 private:
     ::Preferences prefs_;
@@ -75,6 +90,11 @@ private:
     static constexpr const char* KEY_CAT_COUNT        = "catN";
     static constexpr const char* KEY_USER_COUNT       = "userN";
     static constexpr const char* KEY_TZ_OFFSET_MIN    = "tzMin";
+    static constexpr const char* KEY_ACTIVE_CAT_IDX   = "actCat";
+    // Wi-Fi creds + household id — Phase 2.4 captive portal.
+    static constexpr const char* KEY_WIFI_SSID        = "wSsid";
+    static constexpr const char* KEY_WIFI_PASS        = "wPass";
+    static constexpr const char* KEY_HID              = "hid";
 };
 
 }  // namespace feedme::adapters

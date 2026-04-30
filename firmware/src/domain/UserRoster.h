@@ -1,5 +1,7 @@
 #pragma once
 
+#include "domain/Palette.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,8 +13,12 @@ namespace feedme::domain {
 // display-only and what currently stamps `by` on events.
 struct User {
     static constexpr int NAME_CAP = 16;
-    uint8_t id   = 0;
-    char    name[NAME_CAP] = {0};
+    uint8_t  id   = 0;
+    char     name[NAME_CAP] = {0};
+    // 0xRRGGBB tint used for this user's name labels and per-user
+    // accents (FedView "by" line, FeederPicker rows, UsersList rows).
+    // Auto-assigned at add() / appendLoaded; persisted in NVS.
+    uint32_t avatarColor = 0xFFFFFF;
 };
 
 // Household user roster.
@@ -67,9 +73,32 @@ public:
         User& u = users_[count_];
         u.id = nextId_++;
         snprintf(u.name, User::NAME_CAP, "%s %d", DEFAULT_NAME, u.id);
+        u.avatarColor = autoUserColor(u.id);
         ++count_;
         dirty_ = true;
         return count_ - 1;
+    }
+
+    // Remove the user at `slot`. Refuses when count_ <= 1 (preserves
+    // the N>=1 invariant — a household always has someone to attribute
+    // feeds to). Returns true if the remove went through.
+    //
+    // The user's stable id is NOT reused (nextId_ keeps climbing) so
+    // any persisted events that reference it stay unambiguous in the
+    // backend. Slot indices renumber after removal — users above
+    // `slot` shift down. The picker selection clears (devices are
+    // shared; the next feed picks fresh anyway).
+    bool remove(int slot) {
+        if (slot < 0 || slot >= count_) return false;
+        if (count_ <= 1) return false;
+        for (int i = slot; i < count_ - 1; ++i) {
+            users_[i] = users_[i + 1];
+        }
+        --count_;
+        users_[count_] = User{};
+        currentFeederIdx_ = -1;  // any cached selection is now stale
+        dirty_ = true;
+        return true;
     }
 
     void setName(int i, const char* name) {
@@ -91,12 +120,15 @@ public:
         nextId_ = 0;
         dirty_ = false;
     }
-    void appendLoaded(uint8_t id, const char* name) {
+    void appendLoaded(uint8_t id, const char* name, uint32_t avatarColor = 0) {
         if (count_ >= MAX_USERS) return;
         User& u = users_[count_];
         u.id = id;
         if (name) { strncpy(u.name, name, User::NAME_CAP - 1); u.name[User::NAME_CAP - 1] = '\0'; }
         else      { snprintf(u.name, User::NAME_CAP, "%s %d", DEFAULT_NAME, id); }
+        // 0 sentinel = "no stored color" → use round-robin default
+        // (handles users from a pre-color era on first boot).
+        u.avatarColor = (avatarColor != 0) ? avatarColor : autoUserColor(id);
         ++count_;
         if (id >= nextId_) nextId_ = id + 1;
     }

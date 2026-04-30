@@ -29,8 +29,10 @@
 #include "views/ScheduleView.h"
 #include "views/ScreenManager.h"
 #include "views/SettingsView.h"
+#include "views/SetupView.h"
 #include "views/ThresholdEditView.h"
 #include "views/TimeZoneEditView.h"
+#include "views/UserRemoveView.h"
 #include "views/UsersListView.h"
 #include "views/WakeTimeEditView.h"
 #include "views/WifiResetView.h"
@@ -82,6 +84,7 @@ public:
     // LockConfirmView; plus read/write the shared portion / quiet state.
     feedme::views::PouringView&     pouringView()  { return pouringView_; }
     feedme::views::SettingsView&    settingsView() { return settingsView_; }
+    feedme::views::SetupView&       setupView()    { return setupView_; }
     feedme::views::LockConfirmView& lockConfirmView() { return lockConfirmView_; }
     feedme::views::ThresholdEditView& thresholdEditView() { return thresholdEditView_; }
     feedme::views::WifiResetView&     wifiResetView()     { return wifiResetView_; }
@@ -134,12 +137,15 @@ private:
     feedme::views::ThresholdEditView   thresholdEditView_;
     // Phase D.4 — Wi-Fi reset confirmation.
     feedme::views::WifiResetView       wifiResetView_;
+    // Phase 2.4 — captive-portal setup screen (text-only).
+    feedme::views::SetupView           setupView_;
     // Phase D.5 — Cats roster + per-cat slug picker.
     feedme::views::CatsListView        catsListView_;
     feedme::views::CatEditView         catEditView_;
     feedme::views::CatRemoveView       catRemoveView_;
     // Phase D.6 — Users roster (no per-user editor in v0).
     feedme::views::UsersListView       usersListView_;
+    feedme::views::UserRemoveView      userRemoveView_;
 #if defined(FEEDME_HAS_HOPPER)
     // Phase C.6 — Hopper level (feature-flagged; no load cell on this
     // board, so contents are static placeholder until real hardware).

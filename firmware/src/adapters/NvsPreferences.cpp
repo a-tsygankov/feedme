@@ -157,8 +157,22 @@ void NvsPreferences::setCatScheduleHour(int c, int m, int v) {
     prefs_.putInt(k, v);
 }
 
+uint32_t NvsPreferences::getCatColor(int slot, uint32_t d) {
+    if (!ready_) return d;
+    char k[12]; formatKey(k, sizeof(k), "catCol",  slot);
+    return prefs_.getUInt(k, d);
+}
+void NvsPreferences::setCatColor(int slot, uint32_t v) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "catCol",  slot);
+    prefs_.putUInt(k, v);
+}
+
 int  NvsPreferences::getTimeZoneOffsetMin(int d) { return ready_ ? prefs_.getInt(KEY_TZ_OFFSET_MIN, d) : d; }
 void NvsPreferences::setTimeZoneOffsetMin(int v) { if (ready_) prefs_.putInt(KEY_TZ_OFFSET_MIN, v); }
+
+int  NvsPreferences::getActiveCatIdx(int d) { return ready_ ? prefs_.getInt(KEY_ACTIVE_CAT_IDX, d) : d; }
+void NvsPreferences::setActiveCatIdx(int v) { if (ready_) prefs_.putInt(KEY_ACTIVE_CAT_IDX, v); }
 
 int  NvsPreferences::getUserCount(int d) { return ready_ ? prefs_.getInt(KEY_USER_COUNT, d) : d; }
 void NvsPreferences::setUserCount(int v) { if (ready_) prefs_.putInt(KEY_USER_COUNT, v); }
@@ -182,6 +196,48 @@ void NvsPreferences::setUserName(int slot, const char* value) {
     if (!ready_ || !value) return;
     char k[12]; formatKey(k, sizeof(k), "uName", slot);
     prefs_.putString(k, value);
+}
+
+uint32_t NvsPreferences::getUserColor(int slot, uint32_t d) {
+    if (!ready_) return d;
+    char k[12]; formatKey(k, sizeof(k), "uCol", slot);
+    return prefs_.getUInt(k, d);
+}
+void NvsPreferences::setUserColor(int slot, uint32_t v) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "uCol", slot);
+    prefs_.putUInt(k, v);
+}
+
+bool NvsPreferences::getWifiSsid(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_WIFI_SSID, buf, bufLen) > 0;
+}
+void NvsPreferences::setWifiSsid(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_WIFI_SSID, value);
+}
+bool NvsPreferences::getWifiPass(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_WIFI_PASS, buf, bufLen) > 0;
+}
+void NvsPreferences::setWifiPass(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_WIFI_PASS, value);
+}
+bool NvsPreferences::getHid(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_HID, buf, bufLen) > 0;
+}
+void NvsPreferences::setHid(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_HID, value);
+}
+void NvsPreferences::clearWifiCreds() {
+    if (!ready_) return;
+    prefs_.remove(KEY_WIFI_SSID);
+    prefs_.remove(KEY_WIFI_PASS);
+    prefs_.remove(KEY_HID);
 }
 
 }  // namespace feedme::adapters

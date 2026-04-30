@@ -207,6 +207,13 @@ const char* QuietView::handleInput(feedme::ports::TapEvent ev) {
         case E::Press:
             quiet_->toggle();
             return nullptr;
+        // Rotate enters the start/end times editor. Used to live behind
+        // Settings → Quiet, but that row was removed (it duplicated the
+        // F-S-Q-G menu's Q glyph). Either rotate direction works — both
+        // mean "configure" rather than the editor's own per-field nudge.
+        case E::RotateCW:
+        case E::RotateCCW:
+            return "quietHoursEdit";
         // Long-press / long-touch → ScreenManager fallback to parent().
         default:
             return nullptr;

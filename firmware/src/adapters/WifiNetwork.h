@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/TimeZone.h"
 #include "ports/INetwork.h"
 
 #include <string>
@@ -34,20 +35,36 @@ class WifiNetwork : public feedme::ports::INetwork {
 public:
     WifiNetwork(const char* baseUrl, const char* hid);
 
+    // Replace hid at runtime — used after captive-portal setup or
+    // NVS load when the build-flag value is overridden by stored
+    // creds. Empty string disables fetch/post (treats as offline).
+    void setHid(const char* hid);
+
+    // Optional TimeZone reference. When set, fetchState appends
+    // `&tzOffset=N` to the GET URL so the backend rolls "today" over
+    // at local midnight instead of UTC. Read live so changes via the
+    // Settings → Timezone editor take effect on the next poll
+    // without a re-flash. Null → omit the param (backend defaults
+    // to UTC).
+    void setTimeZone(const feedme::domain::TimeZone* tz) { tz_ = tz; }
+
     void begin() override;
     bool isOnline() const override;
     std::optional<feedme::domain::FeedingState>
     fetchState(uint8_t catId) override;
-    bool postFeed(const std::string& by, int64_t ts, uint8_t catId) override;
+    bool postFeed(const std::string& by, int64_t ts, uint8_t catId,
+                  const std::string& eventId) override;
     bool postSnooze(const std::string& by, int64_t ts, int durationSec,
-                    uint8_t catId) override;
+                    uint8_t catId,
+                    const std::string& eventId) override;
 
 private:
     bool postEvent(const std::string& by, const char* type, int durationSec,
-                   uint8_t catId);
+                   uint8_t catId, const std::string& eventId);
 
     std::string baseUrl_;   // no trailing slash
     std::string hid_;
+    const feedme::domain::TimeZone* tz_ = nullptr;
 };
 
 }  // namespace feedme::adapters

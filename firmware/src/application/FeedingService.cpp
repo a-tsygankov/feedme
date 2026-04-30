@@ -1,5 +1,7 @@
 #include "application/FeedingService.h"
 
+#include "domain/EventId.h"
+
 namespace feedme::application {
 
 namespace {
@@ -38,8 +40,9 @@ void FeedingService::tick() {
         auto pending = storage_.drainPending();
         for (auto& ev : pending) {
             const bool sent = (ev.type == "snooze")
-                ? network_.postSnooze(ev.by, ev.ts, /*durationSec=*/0, ev.cat)
-                : network_.postFeed(ev.by, ev.ts, ev.cat);
+                ? network_.postSnooze(ev.by, ev.ts, /*durationSec=*/0,
+                                       ev.cat, ev.clientEventId)
+                : network_.postFeed(ev.by, ev.ts, ev.cat, ev.clientEventId);
             if (!sent) storage_.enqueue(ev);
         }
     }
@@ -77,13 +80,14 @@ void FeedingService::logFeeding(const char* by, int catSlot) {
     justFedClearAt_[catSlot] = now + FED_BANNER_SEC;
 
     feedme::ports::PendingEvent ev{};
+    ev.clientEventId = feedme::domain::generateEventId();
     ev.ts   = now;
     ev.type = "feed";
     ev.by   = by ? by : "";
     ev.cat  = roster_.at(catSlot).id;
     storage_.enqueue(ev);
     storage_.recordHistory(ev);
-    network_.postFeed(ev.by, now, ev.cat);
+    network_.postFeed(ev.by, now, ev.cat, ev.clientEventId);
     appendHistory(now, "feed", by, ev.cat);
 }
 
@@ -93,13 +97,14 @@ void FeedingService::snooze(const char* by, int durationSec, int catSlot) {
     states_[catSlot].snoozeUntilTs = now + durationSec;
 
     feedme::ports::PendingEvent ev{};
+    ev.clientEventId = feedme::domain::generateEventId();
     ev.ts   = now;
     ev.type = "snooze";
     ev.by   = by ? by : "";
     ev.cat  = roster_.at(catSlot).id;
     storage_.enqueue(ev);
     storage_.recordHistory(ev);
-    network_.postSnooze(ev.by, now, durationSec, ev.cat);
+    network_.postSnooze(ev.by, now, durationSec, ev.cat, ev.clientEventId);
     appendHistory(now, "snooze", by, ev.cat);
 }
 

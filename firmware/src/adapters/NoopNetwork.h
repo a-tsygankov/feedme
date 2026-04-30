@@ -30,11 +30,13 @@ public:
     // doesn't think it landed and re-enqueues for when a real network
     // comes online. (NoopNetwork on the simulator stays this way; on
     // the real board, WifiNetwork is the active adapter.)
-    bool postFeed(const std::string&, int64_t, uint8_t /*catId*/) override {
+    bool postFeed(const std::string&, int64_t, uint8_t /*catId*/,
+                  const std::string& /*eventId*/) override {
         return false;
     }
     bool postSnooze(const std::string&, int64_t, int,
-                    uint8_t /*catId*/) override {
+                    uint8_t /*catId*/,
+                    const std::string& /*eventId*/) override {
         return false;
     }
 };

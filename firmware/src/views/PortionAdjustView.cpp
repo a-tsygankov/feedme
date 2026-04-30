@@ -6,6 +6,26 @@
 
 namespace feedme::views {
 
+namespace {
+
+// Which cat's portion does this editor mutate? PortionAdjust is reached
+// only from FeedConfirm, which sets feedSelection() to the cat the user
+// just picked from the rotate-cycle. Honour that.
+//
+// Falls back to the active cat in two cases:
+//   - feedSelection == FEED_ALL: the "feed everyone" mode has no single
+//     portion to edit. Editing the active cat is the least-surprising
+//     behaviour while a "scale all proportionally" UX is designed.
+//   - feedSelection out of range / unset: defensive — entering
+//     PortionAdjust from any other path falls back to the same default.
+int editSlot(const feedme::domain::CatRoster& r) {
+    const int sel = r.feedSelection();
+    if (sel >= 0 && sel < r.count()) return sel;
+    return r.activeCatIdx();
+}
+
+}  // namespace
+
 void PortionAdjustView::build(lv_obj_t* parent) {
     root_ = lv_obj_create(parent);
     lv_obj_set_size(root_, 240, 240);
@@ -54,7 +74,8 @@ void PortionAdjustView::build(lv_obj_t* parent) {
 
 void PortionAdjustView::redraw() {
     if (!roster_ || roster_->count() == 0) return;
-    const int g = roster_->activePortion().grams();
+    const int slot = editSlot(*roster_);
+    const int g    = roster_->at(slot).portion.grams();
     if (g == lastDrawnG_) return;
     lastDrawnG_ = g;
 
@@ -80,9 +101,10 @@ void PortionAdjustView::render(const feedme::ports::DisplayFrame&) {
 const char* PortionAdjustView::handleInput(feedme::ports::TapEvent ev) {
     using E = feedme::ports::TapEvent;
     if (!roster_ || roster_->count() == 0) return nullptr;
+    const int slot = editSlot(*roster_);
     switch (ev) {
-        case E::RotateCW:  roster_->activePortion().bumpUp();   return nullptr;
-        case E::RotateCCW: roster_->activePortion().bumpDown(); return nullptr;
+        case E::RotateCW:  roster_->at(slot).portion.bumpUp();   return nullptr;
+        case E::RotateCCW: roster_->at(slot).portion.bumpDown(); return nullptr;
         case E::Tap:
         case E::Press:     return "feedConfirm";
         // Long-press / long-touch → ScreenManager fallback to parent()

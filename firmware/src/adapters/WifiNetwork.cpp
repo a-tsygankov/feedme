@@ -61,6 +61,11 @@ std::optional<feedme::domain::FeedingState> parseStateJson(const String& body) {
 WifiNetwork::WifiNetwork(const char* baseUrl, const char* hid)
     : baseUrl_(normalizeBase(baseUrl)), hid_(hid ? hid : "") {}
 
+void WifiNetwork::setHid(const char* hid) {
+    hid_ = hid ? hid : "";
+    Serial.printf("[net] WifiNetwork hid -> '%s'\n", hid_.c_str());
+}
+
 void WifiNetwork::begin() {
     Serial.printf("[net] WifiNetwork base='%s' hid='%s'\n",
                   baseUrl_.c_str(), hid_.c_str());
@@ -80,7 +85,13 @@ WifiNetwork::fetchState(uint8_t catId) {
 
     char catBuf[8];
     snprintf(catBuf, sizeof(catBuf), "%u", static_cast<unsigned>(catId));
-    const std::string url = baseUrl_ + "/api/state?hid=" + hid_ + "&cat=" + catBuf;
+    std::string url = baseUrl_ + "/api/state?hid=" + hid_ + "&cat=" + catBuf;
+    if (tz_) {
+        char tzBuf[8];
+        snprintf(tzBuf, sizeof(tzBuf), "%d", tz_->offsetMin());
+        url += "&tzOffset=";
+        url += tzBuf;
+    }
     if (!http.begin(client, url.c_str())) return std::nullopt;
 
     const int code = http.GET();
@@ -94,17 +105,20 @@ WifiNetwork::fetchState(uint8_t catId) {
     return out;
 }
 
-bool WifiNetwork::postFeed(const std::string& by, int64_t /*ts*/, uint8_t catId) {
-    return postEvent(by, "feed", 0, catId);
+bool WifiNetwork::postFeed(const std::string& by, int64_t /*ts*/,
+                           uint8_t catId, const std::string& eventId) {
+    return postEvent(by, "feed", 0, catId, eventId);
 }
 
 bool WifiNetwork::postSnooze(const std::string& by, int64_t /*ts*/,
-                             int durationSec, uint8_t catId) {
-    return postEvent(by, "snooze", durationSec, catId);
+                             int durationSec, uint8_t catId,
+                             const std::string& eventId) {
+    return postEvent(by, "snooze", durationSec, catId, eventId);
 }
 
 bool WifiNetwork::postEvent(const std::string& by, const char* type,
-                            int /*durationSec*/, uint8_t catId) {
+                            int /*durationSec*/, uint8_t catId,
+                            const std::string& eventId) {
     if (!isOnline() || baseUrl_.empty() || hid_.empty()) return false;
 
     char catBuf[8];
@@ -115,6 +129,7 @@ bool WifiNetwork::postEvent(const std::string& by, const char* type,
     doc["by"]   = by;
     doc["type"] = type;
     doc["cat"]  = catBuf;
+    if (!eventId.empty()) doc["eventId"] = eventId;
     // (Server ignores `note` in this schema; durationSec for snooze
     // would belong here once the schema gains a duration column.)
 

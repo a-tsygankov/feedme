@@ -1,6 +1,7 @@
 #pragma once
 
 #include "domain/MealSchedule.h"
+#include "domain/Palette.h"
 #include "domain/PortionState.h"
 
 #include <stdint.h>
@@ -26,6 +27,11 @@ struct Cat {
     uint8_t      id   = 0;
     char         name[NAME_CAP] = {0};
     char         slug[SLUG_CAP] = {0};
+    // 0xRRGGBB tint applied to this cat's avatar PNG and name labels.
+    // Auto-assigned at add() / first appendLoaded(); persisted in NVS.
+    // Mutable later via the per-cat edit UI (not implemented yet) but
+    // not by the rest of the firmware.
+    uint32_t     avatarColor = 0xFFFFFF;
     // Per-cat tunables — Phase E.x. Defaults match what the global
     // values used to ship as. PortionState carries its own dirty flag
     // which CatRoster::consumeDirty() aggregates. Schedule + threshold
@@ -66,11 +72,11 @@ public:
     }
 
     // Active cat — the one whose per-cat tunables (portion, schedule,
-    // threshold) are currently routed into the views. Today defaults
-    // to slot 0; when a cat-selector lands (planned: long-rotate from
-    // Idle for N≥2 households), it sets this. Not persisted in v0 —
-    // each boot starts on the first cat; flip to persisted once the
-    // selector ships.
+    // threshold) are currently routed into the views. Set by the
+    // IdleView cat-selector (rotate when N≥2). Persisted to NVS by
+    // main.cpp's tick loop on change so multi-cat households don't
+    // reset to slot 0 every reboot. Clamp on load handles the case
+    // where the previously-active cat was removed.
     int  activeCatIdx() const { return (count_ > 0) ? activeCatIdx_ : -1; }
     void setActiveCatIdx(int i) {
         if (i < 0 || i >= count_) return;
@@ -158,6 +164,10 @@ public:
         snprintf(c.name, Cat::NAME_CAP, "%s %d", DEFAULT_NAME, c.id);
         strncpy(c.slug, DEFAULT_SLUG, Cat::SLUG_CAP - 1);
         c.slug[Cat::SLUG_CAP - 1] = '\0';
+        // Round-robin avatar color from the cat palette. id is stable
+        // and never reused, so a removed-then-added slot doesn't
+        // collide with surviving cats' colors.
+        c.avatarColor = autoCatColor(c.id);
         // Reset per-cat tunables — slot may have been reused after
         // clear(). loadFromStorage seeds + clears dirty so the new
         // cat doesn't trip persistence on its own creation.
@@ -185,6 +195,13 @@ public:
         dirty_ = true;
     }
 
+    void setAvatarColor(int i, uint32_t color) {
+        if (i < 0 || i >= count_) return;
+        if (cats_[i].avatarColor == color) return;
+        cats_[i].avatarColor = color;
+        dirty_ = true;
+    }
+
     // Aggregates roster-level dirties (add/setName/setSlug) and per-cat
     // tunable dirties (PortionState, soon Schedule + Threshold). Call
     // each service tick; persistence walks the roster + per-cat fields.
@@ -207,7 +224,8 @@ public:
     }
     void appendLoaded(uint8_t id, const char* name, const char* slug,
                       int portionGrams = PortionState::DEFAULT_G,
-                      int64_t thresholdSec = Cat::DEFAULT_THRESHOLD_S) {
+                      int64_t thresholdSec = Cat::DEFAULT_THRESHOLD_S,
+                      uint32_t avatarColor = 0) {
         if (count_ >= MAX_CATS) return;
         Cat& c = cats_[count_];
         c.id = id;
@@ -215,6 +233,10 @@ public:
         else      { snprintf(c.name, Cat::NAME_CAP, "%s %d", DEFAULT_NAME, id); }
         if (slug) { strncpy(c.slug, slug, Cat::SLUG_CAP - 1); c.slug[Cat::SLUG_CAP - 1] = '\0'; }
         else      { strncpy(c.slug, DEFAULT_SLUG, Cat::SLUG_CAP - 1); c.slug[Cat::SLUG_CAP - 1] = '\0'; }
+        // 0 sentinel = "no stored color" — fall back to the round-robin
+        // assignment so existing cats from a pre-color era get a
+        // sensible default on first boot.
+        c.avatarColor = (avatarColor != 0) ? avatarColor : autoCatColor(id);
         c.portion.loadFromStorage(portionGrams);
         c.hungryThresholdSec = thresholdSec;
         // Schedule defaults via MealSchedule's ctor; per-slot

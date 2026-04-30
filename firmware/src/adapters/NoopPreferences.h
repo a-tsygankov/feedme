@@ -118,8 +118,19 @@ public:
         catSched_[c][m]    = v;
         catSchedSet_[c][m] = true;
     }
+    uint32_t getCatColor(int slot, uint32_t d) override {
+        return (slot >= 0 && slot < 4 && catColorSet_[slot]) ? catColor_[slot] : d;
+    }
+    void setCatColor(int slot, uint32_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        catColor_[slot] = v;
+        catColorSet_[slot] = true;
+    }
     int  getTimeZoneOffsetMin(int d) override { return tzHasValue_ ? tzMin_ : d; }
     void setTimeZoneOffsetMin(int v) override { tzMin_ = v; tzHasValue_ = true; }
+
+    int  getActiveCatIdx(int d) override { return activeCatHasValue_ ? activeCatIdx_ : d; }
+    void setActiveCatIdx(int v) override { activeCatIdx_ = v; activeCatHasValue_ = true; }
 
     int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
     void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
@@ -146,6 +157,24 @@ public:
         userName_[slot][i] = '\0';
         userNameSet_[slot] = true;
     }
+    uint32_t getUserColor(int slot, uint32_t d) override {
+        return (slot >= 0 && slot < 4 && userColorSet_[slot]) ? userColor_[slot] : d;
+    }
+    void setUserColor(int slot, uint32_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        userColor_[slot] = v;
+        userColorSet_[slot] = true;
+    }
+
+    // Wi-Fi creds — sim is never online so always "not set". Captive
+    // portal logic on real hardware uses the NvsPreferences impl.
+    bool getWifiSsid(char*, int) override { return false; }
+    void setWifiSsid(const char*) override {}
+    bool getWifiPass(char*, int) override { return false; }
+    void setWifiPass(const char*) override {}
+    bool getHid     (char*, int) override { return false; }
+    void setHid     (const char*) override {}
+    void clearWifiCreds() override {}
 
 private:
     int64_t threshold_     = 0;
@@ -182,6 +211,12 @@ private:
     bool    catSchedSet_[4][4] = {{false}};
     int     tzMin_       = 0;
     bool    tzHasValue_  = false;
+    int     activeCatIdx_      = 0;
+    bool    activeCatHasValue_ = false;
+    uint32_t catColor_   [4]   = {0};
+    bool     catColorSet_[4]   = {false};
+    uint32_t userColor_  [4]   = {0};
+    bool     userColorSet_[4]  = {false};
 };
 
 }  // namespace feedme::adapters

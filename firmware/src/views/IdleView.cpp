@@ -41,6 +41,13 @@ void IdleView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(kickerLbl_, lv_color_hex(kTheme.dim), 0);
     lv_obj_set_style_text_font(kickerLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(kickerLbl_, "");
+    // Round-screen safe width: at y≈70 the chord across a 240 px circle
+    // is ~218 px. Cap at 200 (with internal centring) so long combos
+    // like "Sebastian · fed 4h 23m ago by Christopher" truncate with
+    // an ellipsis rather than running off the bezel.
+    lv_obj_set_width(kickerLbl_, 200);
+    lv_label_set_long_mode(kickerLbl_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(kickerLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(kickerLbl_, LV_ALIGN_TOP_MID, 0, 70);
 
     catImg_ = lv_img_create(root_);
@@ -51,6 +58,11 @@ void IdleView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(footerLbl_, lv_color_hex(kTheme.dim), 0);
     lv_obj_set_style_text_font(footerLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(footerLbl_, "next  13:00  lunch");
+    // At y≈218 (BOTTOM_MID -22) the chord is only ~138 px. Cap at 140
+    // so "next 22:00 breakfast" trims rather than clipping the corners.
+    lv_obj_set_width(footerLbl_, 140);
+    lv_label_set_long_mode(footerLbl_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(footerLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(footerLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }
 
@@ -83,6 +95,16 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
 
     if (firstRender_ || frame.mood != lastFrame_.mood) {
         lv_img_set_src(catImg_, catForMood(frame.mood));
+    }
+    // Tint the silhouette with the active cat's avatar color. White
+    // pixels in the PNG multiply with the recolor at COVER opacity →
+    // tinted image, shading curves preserved.
+    if (roster_ && rosterCount > 0) {
+        const uint32_t tint = roster_->active().avatarColor;
+        lv_obj_set_style_img_recolor(catImg_, lv_color_hex(tint), 0);
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
     }
 
     char timeBuf[8];

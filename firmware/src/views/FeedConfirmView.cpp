@@ -88,7 +88,10 @@ void FeedConfirmView::build(lv_obj_t* parent) {
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(hintLbl_, "TURN  ADJ  PRESS  POUR");
+    lv_label_set_text(hintLbl_, "TAP ADJ  PRESS POUR");
+    lv_obj_set_width(hintLbl_, 160);
+    lv_label_set_long_mode(hintLbl_, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(hintLbl_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }
 
@@ -122,6 +125,15 @@ void FeedConfirmView::redraw() {
         strncpy(lastDrawnSlug_, cat.slug, 3);
         lastDrawnSlug_[3]   = '\0';
         lastDrawnActiveIdx_ = displayedSlot;
+    }
+    // Tint: a specific cat → that cat's color; FEED_ALL → white (the
+    // image acts as a generic "all cats" placeholder, not a portrait).
+    if (feedAll) {
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+    } else {
+        lv_obj_set_style_img_recolor(catImg_,
+            lv_color_hex(cat.avatarColor), 0);
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
     }
 
     // Portion label — for ALL show the total grams; otherwise the

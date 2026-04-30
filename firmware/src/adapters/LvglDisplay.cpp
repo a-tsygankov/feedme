@@ -112,8 +112,11 @@ void LvglDisplay::buildScene() {
     catEditView_.setRoster(&roster_);
     catRemoveView_.setRoster(&roster_);
     usersListView_.setRoster(&userRoster_);
+    userRemoveView_.setRoster(&userRoster_);
     feedConfirmView_.setUserRoster(&userRoster_);
     feederPickerView_.setRoster(&userRoster_);
+    fedView_.setUserRoster(&userRoster_);
+    fedView_.setCatRoster (&roster_);
     // settingsView_.setCoordinator() and thresholdEditView_.setCoordinator()
     // are called from main.cpp after DisplayCoordinator is constructed.
     // settingsView_.setNetwork() is called from main.cpp once network exists.
@@ -141,6 +144,8 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&catEditView_);
     screens_.registerView(&catRemoveView_);
     screens_.registerView(&usersListView_);
+    screens_.registerView(&userRemoveView_);
+    screens_.registerView(&setupView_);
 #if defined(FEEDME_HAS_HOPPER)
     screens_.registerView(&hopperView_);
 #endif

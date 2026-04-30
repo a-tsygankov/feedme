@@ -17,6 +17,24 @@ constexpr int ARC_DIAM   = ARC_RADIUS * 2;
 constexpr int ARC_ROTATION = 270;
 constexpr int ARC_SWEEP_MAX = 360;
 
+// Total grams about to be poured — must match what FeedConfirm advertised
+// to the user. FeedConfirm sets roster.feedSelection() before this view
+// runs:
+//   - FEED_ALL: sum of every cat's portion (the "feed everyone" default).
+//   - 0..N-1:   that cat's individual portion.
+//   - else:     defensive fallback to active cat (handles the unlikely
+//               "entered Pouring through some other path" case).
+int displayedTotal(const feedme::domain::CatRoster& r) {
+    const int sel = r.feedSelection();
+    if (sel == feedme::domain::CatRoster::FEED_ALL) {
+        int sum = 0;
+        for (int i = 0; i < r.count(); ++i) sum += r.at(i).portion.grams();
+        return sum;
+    }
+    if (sel >= 0 && sel < r.count()) return r.at(sel).portion.grams();
+    return r.activePortion().grams();
+}
+
 }  // namespace
 
 void PouringView::build(lv_obj_t* parent) {
@@ -88,6 +106,20 @@ void PouringView::onEnter() {
     cancelled_ = false;
     lastSweep_ = -1;
     lv_arc_set_value(arcFg_, 0);
+    // Tint the placeholder hero by the cat being fed. FEED_ALL keeps
+    // the white silhouette since the image stands in for "all cats".
+    if (roster_ && roster_->count() > 0) {
+        const int sel = roster_->feedSelection();
+        if (sel == feedme::domain::CatRoster::FEED_ALL) {
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+        } else if (sel >= 0 && sel < roster_->count()) {
+            // COVER recolor (full tint of underlying white) combined
+            // with the existing img_opa = 50 → faded tinted silhouette.
+            lv_obj_set_style_img_recolor(catImg_,
+                lv_color_hex(roster_->at(sel).avatarColor), 0);
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+        }
+    }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -108,7 +140,7 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
         lastSweep_ = sweep;
         lv_arc_set_value(arcFg_, sweep);
 
-        const int total = roster_->activePortion().grams();
+        const int total = displayedTotal(*roster_);
         const int poured = static_cast<int>(progress * total);
         char buf[24];
         snprintf(buf, sizeof(buf), "%d g of %d", poured, total);
@@ -135,9 +167,10 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
                 feeding_->logFeeding(owner, sel);
             }
         }
-        // Reset the transient picker selection so the next feed starts
-        // fresh — devices are shared, no remembered "current user".
-        if (users_) users_->clearCurrentFeeder();
+        // Picker clear deferred to FedView::onLeave so the "fed by
+        // Alice" attribution there can still read currentFeederName().
+        // Devices are shared — there's no remembered "current user"
+        // between feeds, even back-to-back ones.
     }
 }
 

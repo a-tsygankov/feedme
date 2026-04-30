@@ -98,9 +98,22 @@ void CatsListView::redraw() {
         }
         lv_obj_set_style_opa(rows_[i], opa, 0);
 
+        // Cat-row labels carry the cat's avatar tint regardless of
+        // selection (so the colour identifies the cat, not the focus).
+        // Done / +Add / ×Remove rows use the selection state colour
+        // — they aren't tied to any specific cat.
         const bool isSel = (offset == 0);
-        lv_obj_set_style_text_color(labels_[i],
-            lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        const int  catIdx = i - 1;
+        const bool isCatRow = roster_
+                              && catIdx >= 0
+                              && catIdx < roster_->count();
+        if (isCatRow) {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(roster_->at(catIdx).avatarColor), 0);
+        } else {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        }
 
         char buf[32];
         rowText(i, buf, sizeof(buf));
