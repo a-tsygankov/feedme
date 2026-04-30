@@ -321,11 +321,14 @@ void setup() {
                                                   : feedme::domain::Cat::DEFAULT_THRESHOLD_S;
             const int     portion   = prefs.getCatPortion(i, defaultPort);
             const int64_t threshold = prefs.getCatThresholdSec(i, defaultThr);
+            // 0 sentinel → CatRoster falls back to autoCatColor(id).
+            const uint32_t color    = prefs.getCatColor(i, 0);
             roster.appendLoaded(static_cast<uint8_t>(id),
                                 haveName ? nameBuf : nullptr,
                                 haveSlug ? slugBuf : nullptr,
                                 portion,
-                                threshold);
+                                threshold,
+                                color);
             // Per-slot schedule hours layer on top of the defaults
             // already populated by appendLoaded → MealSchedule's ctor.
             // Reach into the cat we just appended (count_-1) and
@@ -350,6 +353,7 @@ void setup() {
                 prefs.setCatSlug       (i, roster.at(i).slug);
                 prefs.setCatPortion    (i, roster.at(i).portion.grams());
                 prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+                prefs.setCatColor      (i, roster.at(i).avatarColor);
                 for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
                     prefs.setCatScheduleHour(i, s, roster.at(i).schedule.slotHour(s));
                 }
@@ -373,16 +377,19 @@ void setup() {
             const int  id = prefs.getUserId(i, i);
             char nameBuf[feedme::domain::User::NAME_CAP] = {0};
             const bool haveName = prefs.getUserName(i, nameBuf, sizeof(nameBuf));
+            const uint32_t color = prefs.getUserColor(i, 0);
             roster.appendLoaded(static_cast<uint8_t>(id),
-                                haveName ? nameBuf : nullptr);
+                                haveName ? nameBuf : nullptr,
+                                color);
         }
         roster.seedDefaultIfEmpty();
         roster.markClean();
         if (n == 0) {
             prefs.setUserCount(roster.count());
             for (int i = 0; i < roster.count(); ++i) {
-                prefs.setUserId  (i, roster.at(i).id);
-                prefs.setUserName(i, roster.at(i).name);
+                prefs.setUserId   (i, roster.at(i).id);
+                prefs.setUserName (i, roster.at(i).name);
+                prefs.setUserColor(i, roster.at(i).avatarColor);
             }
         }
     }
@@ -537,6 +544,7 @@ void loop() {
                 prefs.setCatSlug       (i, roster.at(i).slug);
                 prefs.setCatPortion    (i, roster.at(i).portion.grams());
                 prefs.setCatThresholdSec(i, roster.at(i).hungryThresholdSec);
+                prefs.setCatColor      (i, roster.at(i).avatarColor);
                 for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
                     prefs.setCatScheduleHour(i, s, roster.at(i).schedule.slotHour(s));
                 }
@@ -546,8 +554,9 @@ void loop() {
             const auto& users = display.userRoster();
             prefs.setUserCount(users.count());
             for (int i = 0; i < users.count(); ++i) {
-                prefs.setUserId  (i, users.at(i).id);
-                prefs.setUserName(i, users.at(i).name);
+                prefs.setUserId   (i, users.at(i).id);
+                prefs.setUserName (i, users.at(i).name);
+                prefs.setUserColor(i, users.at(i).avatarColor);
             }
         }
         // Active cat — persisted independently of the roster's dirty

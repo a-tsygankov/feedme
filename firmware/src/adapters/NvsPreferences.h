@@ -45,6 +45,8 @@ public:
     void    setCatThresholdSec(int slot, int64_t value) override;
     int     getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) override;
     void    setCatScheduleHour(int catSlot, int mealSlot, int value) override;
+    uint32_t getCatColor(int slot, uint32_t defaultValue) override;
+    void     setCatColor(int slot, uint32_t value) override;
 
     int  getTimeZoneOffsetMin(int defaultValue) override;
     void setTimeZoneOffsetMin(int value) override;
@@ -58,6 +60,8 @@ public:
     void setUserId   (int slot, int value) override;
     bool getUserName (int slot, char* buf, int bufLen) override;
     void setUserName (int slot, const char* value) override;
+    uint32_t getUserColor(int slot, uint32_t defaultValue) override;
+    void     setUserColor(int slot, uint32_t value) override;
 
     bool getWifiSsid(char* buf, int bufLen) override;
     void setWifiSsid(const char* value) override;

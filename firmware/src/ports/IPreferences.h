@@ -73,6 +73,10 @@ public:
     // cat (Breakfast / Lunch / Dinner / Treat).
     virtual int  getCatScheduleHour(int catSlot, int mealSlot, int defaultValue) = 0;
     virtual void setCatScheduleHour(int catSlot, int mealSlot, int value) = 0;
+    // Per-cat avatar color, 0xRRGGBB. 0 = "not stored" → caller
+    // defaults to the round-robin Palette assignment.
+    virtual uint32_t getCatColor(int slot, uint32_t defaultValue) = 0;
+    virtual void     setCatColor(int slot, uint32_t value) = 0;
 
     // Local timezone offset in minutes (signed). 0 = UTC. Storage
     // unit matches TimeZone::offsetMin to round-trip cleanly.
@@ -99,6 +103,10 @@ public:
     virtual void setUserId   (int slot, int value) = 0;
     virtual bool getUserName (int slot, char* buf, int bufLen) = 0;
     virtual void setUserName (int slot, const char* value) = 0;
+    // Per-user avatar color, 0xRRGGBB. Same 0-sentinel semantics as
+    // getCatColor.
+    virtual uint32_t getUserColor(int slot, uint32_t defaultValue) = 0;
+    virtual void     setUserColor(int slot, uint32_t value) = 0;
 
     // Wi-Fi credentials + household id. Captive portal (Phase 2.4)
     // captures these at first-time setup and stores them here. Empty

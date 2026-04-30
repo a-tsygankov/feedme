@@ -157,6 +157,17 @@ void NvsPreferences::setCatScheduleHour(int c, int m, int v) {
     prefs_.putInt(k, v);
 }
 
+uint32_t NvsPreferences::getCatColor(int slot, uint32_t d) {
+    if (!ready_) return d;
+    char k[12]; formatKey(k, sizeof(k), "catCol",  slot);
+    return prefs_.getUInt(k, d);
+}
+void NvsPreferences::setCatColor(int slot, uint32_t v) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "catCol",  slot);
+    prefs_.putUInt(k, v);
+}
+
 int  NvsPreferences::getTimeZoneOffsetMin(int d) { return ready_ ? prefs_.getInt(KEY_TZ_OFFSET_MIN, d) : d; }
 void NvsPreferences::setTimeZoneOffsetMin(int v) { if (ready_) prefs_.putInt(KEY_TZ_OFFSET_MIN, v); }
 
@@ -185,6 +196,17 @@ void NvsPreferences::setUserName(int slot, const char* value) {
     if (!ready_ || !value) return;
     char k[12]; formatKey(k, sizeof(k), "uName", slot);
     prefs_.putString(k, value);
+}
+
+uint32_t NvsPreferences::getUserColor(int slot, uint32_t d) {
+    if (!ready_) return d;
+    char k[12]; formatKey(k, sizeof(k), "uCol", slot);
+    return prefs_.getUInt(k, d);
+}
+void NvsPreferences::setUserColor(int slot, uint32_t v) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "uCol", slot);
+    prefs_.putUInt(k, v);
 }
 
 bool NvsPreferences::getWifiSsid(char* buf, int bufLen) {

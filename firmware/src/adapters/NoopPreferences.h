@@ -118,6 +118,14 @@ public:
         catSched_[c][m]    = v;
         catSchedSet_[c][m] = true;
     }
+    uint32_t getCatColor(int slot, uint32_t d) override {
+        return (slot >= 0 && slot < 4 && catColorSet_[slot]) ? catColor_[slot] : d;
+    }
+    void setCatColor(int slot, uint32_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        catColor_[slot] = v;
+        catColorSet_[slot] = true;
+    }
     int  getTimeZoneOffsetMin(int d) override { return tzHasValue_ ? tzMin_ : d; }
     void setTimeZoneOffsetMin(int v) override { tzMin_ = v; tzHasValue_ = true; }
 
@@ -148,6 +156,14 @@ public:
         while (v[i] && i < 15) { userName_[slot][i] = v[i]; ++i; }
         userName_[slot][i] = '\0';
         userNameSet_[slot] = true;
+    }
+    uint32_t getUserColor(int slot, uint32_t d) override {
+        return (slot >= 0 && slot < 4 && userColorSet_[slot]) ? userColor_[slot] : d;
+    }
+    void setUserColor(int slot, uint32_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        userColor_[slot] = v;
+        userColorSet_[slot] = true;
     }
 
     // Wi-Fi creds — sim is never online so always "not set". Captive
@@ -197,6 +213,10 @@ private:
     bool    tzHasValue_  = false;
     int     activeCatIdx_      = 0;
     bool    activeCatHasValue_ = false;
+    uint32_t catColor_   [4]   = {0};
+    bool     catColorSet_[4]   = {false};
+    uint32_t userColor_  [4]   = {0};
+    bool     userColorSet_[4]  = {false};
 };
 
 }  // namespace feedme::adapters
