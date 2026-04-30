@@ -1,5 +1,6 @@
 #include "views/WifiSwitchView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -38,9 +39,7 @@ void WifiSwitchView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_font(primaryLbl_, &lv_font_montserrat_18, 0);
     lv_label_set_text(primaryLbl_, "");
     // Cap to safe chord width for top region; long SSIDs truncate.
-    lv_obj_set_width(primaryLbl_, 200);
-    lv_label_set_long_mode(primaryLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(primaryLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(primaryLbl_, 200);
     lv_obj_align(primaryLbl_, LV_ALIGN_TOP_MID, 0, 98);
 
     line3Lbl_ = lv_label_create(root_);
@@ -53,18 +52,14 @@ void WifiSwitchView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(secondaryLbl_, lv_color_hex(kTheme.accent), 0);
     lv_obj_set_style_text_font(secondaryLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(secondaryLbl_, "");
-    lv_obj_set_width(secondaryLbl_, 200);
-    lv_label_set_long_mode(secondaryLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(secondaryLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(secondaryLbl_, 200);
     lv_obj_align(secondaryLbl_, LV_ALIGN_TOP_MID, 0, 158);
 
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hintLbl_, "HOLD  CANCEL");
-    lv_obj_set_width(hintLbl_, 140);
-    lv_label_set_long_mode(hintLbl_, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_align(hintLbl_, LV_TEXT_ALIGN_CENTER, 0);
+    applyClippedLabel(hintLbl_, 140);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 }
 
