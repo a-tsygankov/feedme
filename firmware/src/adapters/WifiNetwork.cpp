@@ -75,6 +75,21 @@ bool WifiNetwork::isOnline() const {
     return WiFi.status() == WL_CONNECTED;
 }
 
+std::string WifiNetwork::ssid() const {
+    if (WiFi.status() != WL_CONNECTED) return {};
+    return std::string(WiFi.SSID().c_str());
+}
+
+int WifiNetwork::rssi() const {
+    if (WiFi.status() != WL_CONNECTED) return 0;
+    return WiFi.RSSI();
+}
+
+std::string WifiNetwork::ipAddress() const {
+    if (WiFi.status() != WL_CONNECTED) return {};
+    return std::string(WiFi.localIP().toString().c_str());
+}
+
 std::optional<feedme::domain::FeedingState>
 WifiNetwork::fetchState(uint8_t catId) {
     if (!isOnline() || baseUrl_.empty() || hid_.empty()) return std::nullopt;

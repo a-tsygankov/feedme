@@ -91,6 +91,12 @@ public:
     virtual int  getActiveCatIdx(int defaultValue) = 0;
     virtual void setActiveCatIdx(int value) = 0;
 
+    // Display-sleep idle timeout in minutes. 0 = never sleep. See
+    // SleepTimeout in domain/ for valid range. main.cpp's PowerManager
+    // reads on boot and listens for setter calls via consumeDirty().
+    virtual int  getSleepTimeoutMin(int defaultValue) = 0;
+    virtual void setSleepTimeoutMin(int value) = 0;
+
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may
     // use the same device (per handoff.md § "Entities…", clarified

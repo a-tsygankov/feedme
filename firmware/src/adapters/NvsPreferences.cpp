@@ -174,6 +174,9 @@ void NvsPreferences::setTimeZoneOffsetMin(int v) { if (ready_) prefs_.putInt(KEY
 int  NvsPreferences::getActiveCatIdx(int d) { return ready_ ? prefs_.getInt(KEY_ACTIVE_CAT_IDX, d) : d; }
 void NvsPreferences::setActiveCatIdx(int v) { if (ready_) prefs_.putInt(KEY_ACTIVE_CAT_IDX, v); }
 
+int  NvsPreferences::getSleepTimeoutMin(int d) { return ready_ ? prefs_.getInt(KEY_SLEEP_TIMEOUT, d) : d; }
+void NvsPreferences::setSleepTimeoutMin(int v) { if (ready_) prefs_.putInt(KEY_SLEEP_TIMEOUT, v); }
+
 int  NvsPreferences::getUserCount(int d) { return ready_ ? prefs_.getInt(KEY_USER_COUNT, d) : d; }
 void NvsPreferences::setUserCount(int v) { if (ready_) prefs_.putInt(KEY_USER_COUNT, v); }
 

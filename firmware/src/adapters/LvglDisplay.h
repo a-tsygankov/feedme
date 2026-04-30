@@ -5,6 +5,7 @@
 #include "domain/MealSchedule.h"
 #include "domain/PortionState.h"
 #include "domain/QuietWindow.h"
+#include "domain/SleepTimeout.h"
 #include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
 #include "domain/WakeTime.h"
@@ -30,12 +31,14 @@
 #include "views/ScreenManager.h"
 #include "views/SettingsView.h"
 #include "views/SetupView.h"
+#include "views/SleepTimeoutEditView.h"
 #include "views/ThresholdEditView.h"
 #include "views/TimeZoneEditView.h"
 #include "views/UserRemoveView.h"
 #include "views/UsersListView.h"
 #include "views/WakeTimeEditView.h"
 #include "views/WifiResetView.h"
+#include "views/WifiSwitchView.h"
 #if defined(FEEDME_HAS_HOPPER)
 #  include "views/HopperView.h"
 #endif
@@ -88,6 +91,7 @@ public:
     feedme::views::LockConfirmView& lockConfirmView() { return lockConfirmView_; }
     feedme::views::ThresholdEditView& thresholdEditView() { return thresholdEditView_; }
     feedme::views::WifiResetView&     wifiResetView()     { return wifiResetView_; }
+    feedme::views::WifiSwitchView&    wifiSwitchView()    { return wifiSwitchView_; }
     feedme::domain::CatRoster&        roster()            { return roster_; }
     feedme::domain::UserRoster&       userRoster()        { return userRoster_; }
     // Per-cat tunables now live on the active cat. Callers used to
@@ -99,6 +103,8 @@ public:
     feedme::domain::QuietWindow&    quiet()        { return quiet_; }
     feedme::domain::WakeTime&       wake()         { return wake_; }
     feedme::domain::TimeZone&       timezone()     { return tz_; }
+    feedme::domain::SleepTimeout&   sleepTimeout() { return sleep_; }
+    feedme::views::SleepTimeoutEditView& sleepTimeoutEditView() { return sleepTimeoutEditView_; }
 
 private:
     // Multi-screen scene graph: ScreenManager owns the views, hides
@@ -131,12 +137,16 @@ private:
     feedme::views::WakeTimeEditView    wakeTimeEditView_;
     // Timezone offset editor.
     feedme::views::TimeZoneEditView    timezoneEditView_;
+    // Sleep-timeout (LCD backlight) editor.
+    feedme::views::SleepTimeoutEditView sleepTimeoutEditView_;
     // Phase D.2 — Quiet hours start/end editor.
     feedme::views::QuietHoursEditView  quietHoursEditView_;
     // Phase D.3 — Hungry-threshold editor.
     feedme::views::ThresholdEditView   thresholdEditView_;
-    // Phase D.4 — Wi-Fi reset confirmation.
+    // Phase D.4 — "Switch Wi-Fi" confirmation (was "reset").
     feedme::views::WifiResetView       wifiResetView_;
+    // In-place AP+STA portal status while a switch is in flight.
+    feedme::views::WifiSwitchView      wifiSwitchView_;
     // Phase 2.4 — captive-portal setup screen (text-only).
     feedme::views::SetupView           setupView_;
     // Phase D.5 — Cats roster + per-cat slug picker.
@@ -168,6 +178,10 @@ private:
     // when projecting unix epoch into hour/minute for the clock face
     // and for local-hour comparisons in Schedule / Quiet.
     feedme::domain::TimeZone     tz_;
+
+    // Display-sleep idle timeout (minutes). 0 = never. PowerManager
+    // in main.cpp consumes the value and toggles the LCD backlight.
+    feedme::domain::SleepTimeout sleep_;
 
     // The legacy LVGL-primitive cat is kept compiled (per
     // feedmeknob-plan.md open question 3 — answered "keep") but is no

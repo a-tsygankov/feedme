@@ -39,6 +39,15 @@ public:
     virtual bool postSnooze(const std::string& by, int64_t ts,
                             int durationSec, uint8_t catId,
                             const std::string& eventId) = 0;
+
+    // ── Connection inspection (read-only diagnostics) ─────────────
+    // Used by SettingsView and WifiResetView to surface what we're
+    // connected to before the user decides to switch. Defaults
+    // return empty / 0 for adapters (NoopNetwork) that don't have a
+    // real link. WifiNetwork queries WiFi.SSID()/RSSI()/localIP().
+    virtual std::string ssid() const { return {}; }
+    virtual int         rssi() const { return 0; }   // dBm; 0 == unknown
+    virtual std::string ipAddress() const { return {}; }
 };
 
 }  // namespace feedme::ports
