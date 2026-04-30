@@ -13,6 +13,7 @@
 #include "domain/MoodCalculator.h"
 #include "domain/QuietWindow.h"
 #include "domain/RingProgress.h"
+#include "domain/SleepTimeout.h"
 #include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
 
@@ -507,6 +508,84 @@ void test_quiet_window_contains_empty_window_never_matches() {
     TEST_ASSERT_FALSE(q.contains(23, 59));
 }
 
+// ── SleepTimeout ──────────────────────────────────────────────────────────
+
+void test_sleep_timeout_default_is_5_min() {
+    SleepTimeout s;
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::DEFAULT_MIN, s.minutes());
+    TEST_ASSERT_TRUE(s.enabled());
+}
+
+void test_sleep_timeout_zero_disables() {
+    SleepTimeout s;
+    s.set(0);
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());
+    TEST_ASSERT_FALSE(s.enabled());
+}
+
+void test_sleep_timeout_set_marks_dirty_only_on_change() {
+    SleepTimeout s;
+    s.set(SleepTimeout::DEFAULT_MIN);   // already at default
+    TEST_ASSERT_FALSE(s.consumeDirty());
+    s.set(10);
+    TEST_ASSERT_EQUAL_INT(10, s.minutes());
+    TEST_ASSERT_TRUE(s.consumeDirty());
+    TEST_ASSERT_FALSE(s.consumeDirty()); // cleared on read
+}
+
+void test_sleep_timeout_clamps_below_zero() {
+    SleepTimeout s;
+    s.set(-5);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MIN_MIN, s.minutes());  // 0
+}
+
+void test_sleep_timeout_clamps_above_max() {
+    SleepTimeout s;
+    s.set(9999);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());  // 60
+}
+
+void test_sleep_timeout_bump_up_and_down() {
+    SleepTimeout s;
+    s.set(10);
+    s.consumeDirty();
+    s.bumpUp();
+    TEST_ASSERT_EQUAL_INT(11, s.minutes());
+    s.bumpDown();
+    s.bumpDown();
+    TEST_ASSERT_EQUAL_INT(9, s.minutes());
+}
+
+void test_sleep_timeout_bump_down_past_zero_clamps() {
+    SleepTimeout s;
+    s.set(0);
+    s.bumpDown();
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());  // can't go negative
+    TEST_ASSERT_FALSE(s.enabled());
+}
+
+void test_sleep_timeout_bump_up_past_max_clamps() {
+    SleepTimeout s;
+    s.set(SleepTimeout::MAX_MIN);
+    s.bumpUp();
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());
+}
+
+void test_sleep_timeout_load_from_storage_doesnt_mark_dirty() {
+    SleepTimeout s;
+    s.loadFromStorage(15);
+    TEST_ASSERT_EQUAL_INT(15, s.minutes());
+    TEST_ASSERT_FALSE(s.consumeDirty());
+}
+
+void test_sleep_timeout_load_from_storage_clamps_garbage() {
+    SleepTimeout s;
+    s.loadFromStorage(-100);   // corrupt NVS reading
+    TEST_ASSERT_EQUAL_INT(0, s.minutes());
+    s.loadFromStorage(1000);
+    TEST_ASSERT_EQUAL_INT(SleepTimeout::MAX_MIN, s.minutes());
+}
+
 // ── EventId ───────────────────────────────────────────────────────────────
 
 void test_event_id_length_is_32_hex_chars() {
@@ -603,6 +682,17 @@ int main(int, char**) {
     RUN_TEST(test_quiet_window_bump_hour_wraps);
     RUN_TEST(test_quiet_window_contains_same_day_window);
     RUN_TEST(test_quiet_window_contains_empty_window_never_matches);
+
+    RUN_TEST(test_sleep_timeout_default_is_5_min);
+    RUN_TEST(test_sleep_timeout_zero_disables);
+    RUN_TEST(test_sleep_timeout_set_marks_dirty_only_on_change);
+    RUN_TEST(test_sleep_timeout_clamps_below_zero);
+    RUN_TEST(test_sleep_timeout_clamps_above_max);
+    RUN_TEST(test_sleep_timeout_bump_up_and_down);
+    RUN_TEST(test_sleep_timeout_bump_down_past_zero_clamps);
+    RUN_TEST(test_sleep_timeout_bump_up_past_max_clamps);
+    RUN_TEST(test_sleep_timeout_load_from_storage_doesnt_mark_dirty);
+    RUN_TEST(test_sleep_timeout_load_from_storage_clamps_garbage);
 
     RUN_TEST(test_event_id_length_is_32_hex_chars);
     RUN_TEST(test_event_id_only_hex_chars);
