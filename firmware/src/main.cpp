@@ -188,6 +188,32 @@ uint32_t ambientColorFor(feedme::domain::Mood m) {
 constexpr int SNOOZE_DURATION_SEC      = 30 * 60;  // long-press = 30 minutes
 constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 
+// ── Display sleep / wake (PowerManager) ───────────────────────────
+//
+// The LCD backlight (TFT_BL = GPIO 46, active HIGH on this board)
+// is the dominant power draw at idle. After SleepTimeout::minutes()
+// minutes of inactivity we drive it LOW; any subsequent input wakes
+// it back to HIGH and is then CONSUMED — does not propagate to the
+// active view — so the user doesn't accidentally trigger menu
+// navigation just by waking. Wake also forces a transition to
+// "idle" so we always wake on the main page, regardless of which
+// screen was visible when sleep happened.
+//
+// timeoutMin == 0 disables sleep entirely. Inputs always reset the
+// idle timer (whether sleeping or not) via powerNotifyInput().
+struct PowerState {
+    uint32_t lastInputMs = 0;
+    bool     sleeping    = false;
+};
+PowerState powerState;
+
+void powerNotifyInput() {
+    powerState.lastInputMs = millis();
+}
+// powerWakeIfSleeping / powerTickAndMaybeSleep are defined at global
+// scope below; their callers (the input lambda + loop()) are also at
+// global scope inside setup() / loop(), which lookup them fine.
+
 // FeedingService takes the cat roster so events stamp Cat::id and
 // each cat keeps its own state. DisplayCoordinator reads the active
 // cat's state via roster.activeCatIdx().
@@ -202,6 +228,43 @@ feedme::application::DisplayCoordinator displayCoord(
 uint32_t lastServiceTickMs = 0;
 
 }  // namespace
+
+bool powerWakeIfSleeping() {
+    if (!powerState.sleeping) return false;
+#if !defined(SIMULATOR)
+    digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);
+#endif
+    powerState.sleeping = false;
+    powerState.lastInputMs = millis();
+    Serial.println("[power] wake -> idle");
+    // Always wake on the main page. If the device fell asleep on
+    // FeedConfirm / Settings / etc., the user wakes back on Idle so
+    // they don't have to navigate out of a forgotten context.
+    display.transitionTo("idle");
+    return true;
+}
+
+void powerTickAndMaybeSleep() {
+    if (powerState.sleeping) return;
+    const int timeoutMin = display.sleepTimeout().minutes();
+    if (timeoutMin <= 0) return;  // 0 = never sleep
+    // Skip sleep while the in-place captive portal is active — the
+    // user is mid-flow on their phone and the device-side splash
+    // showing AP info needs to stay visible.
+#if !defined(SIMULATOR)
+    if (captivePortal.state() != feedme::adapters::WifiCaptivePortal::State::Idle) {
+        return;
+    }
+#endif
+    const uint32_t timeoutMs = static_cast<uint32_t>(timeoutMin) * 60u * 1000u;
+    if (millis() - powerState.lastInputMs >= timeoutMs) {
+#if !defined(SIMULATOR)
+        digitalWrite(TFT_BL, !TFT_BACKLIGHT_ON);
+#endif
+        powerState.sleeping = true;
+        Serial.printf("[power] sleep after %d min idle\n", timeoutMin);
+    }
+}
 
 void setup() {
     // ── Power up the LCD rail BEFORE Serial or anything else. ────────────
@@ -292,6 +355,8 @@ void setup() {
         prefs.getWakeMinute(feedme::domain::WakeTime::DEFAULT_MINUTE));
     display.timezone().loadFromStorage(
         prefs.getTimeZoneOffsetMin(feedme::domain::TimeZone::DEFAULT_MIN));
+    display.sleepTimeout().loadFromStorage(
+        prefs.getSleepTimeoutMin(feedme::domain::SleepTimeout::DEFAULT_MIN));
 
     // Cat roster — load count + per-slot fields, then ensure N≥1
     // (seedDefaultIfEmpty adds one default cat on first boot).
@@ -433,6 +498,15 @@ void setup() {
     auto handleInput = [](feedme::ports::TapEvent ev) {
         using E = feedme::ports::TapEvent;
 
+        // PowerManager: any input wakes the screen and is then
+        // consumed — does not propagate to the active view. This
+        // satisfies "wake doesn't accidentally trigger Feed". The
+        // wake also forces a transition to Idle (main page).
+        if (powerWakeIfSleeping()) {
+            return;
+        }
+        powerNotifyInput();
+
         // History overlay is a cross-cutting modal; it intercepts double-
         // gestures regardless of which view is active.
         if (ev == E::DoubleTap || ev == E::DoublePress) {
@@ -495,6 +569,8 @@ void setup() {
     taps.onEvent(handleInput);
     button.onEvent(handleInput);
 
+    powerState.lastInputMs = millis();   // start the idle timer fresh
+
     Serial.println("[feedme] setup complete");
 
 #if defined(SIMULATOR)
@@ -532,6 +608,7 @@ void loop() {
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
         feeding.tick();
+        powerTickAndMaybeSleep();   // backlight off after N min idle
         if (display.quiet().consumeDirty()) {
             prefs.setQuietEnabled    (display.quiet().enabled());
             prefs.setQuietStartHour  (display.quiet().startHour());
@@ -545,6 +622,9 @@ void loop() {
         }
         if (display.timezone().consumeDirty()) {
             prefs.setTimeZoneOffsetMin(display.timezone().offsetMin());
+        }
+        if (display.sleepTimeout().consumeDirty()) {
+            prefs.setSleepTimeoutMin(display.sleepTimeout().minutes());
         }
         if (display.roster().consumeDirty()) {
             const auto& roster = display.roster();
