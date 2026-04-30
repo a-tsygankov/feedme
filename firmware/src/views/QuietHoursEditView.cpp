@@ -147,7 +147,7 @@ const char* QuietHoursEditView::handleInput(feedme::ports::TapEvent ev) {
                 case Field::StartHour:   focus_ = Field::StartMinute; return nullptr;
                 case Field::StartMinute: focus_ = Field::EndHour;     return nullptr;
                 case Field::EndHour:     focus_ = Field::EndMinute;   return nullptr;
-                case Field::EndMinute:   return "settings";  // save = mutations already applied
+                case Field::EndMinute:   return "quiet";     // save = mutations already applied
             }
             return nullptr;
         default:

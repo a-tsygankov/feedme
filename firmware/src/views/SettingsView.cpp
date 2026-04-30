@@ -31,10 +31,16 @@ struct ItemSpec {
 };
 
 // Order must match the indices used in handleInput() and redraw().
+//
+// Quiet hours used to live at index 2; removed because the same toggle
+// is reachable from the main F-S-Q-G menu (the "Q" glyph), so the
+// Settings entry was duplicative. The slot is now a placeholder for
+// Notifications (Phase 4.1) — value renders as "—" and tap is a
+// no-op until the editor lands.
 const ItemSpec kItems[SettingsView::ITEM_COUNT] = {
     { "Wi-Fi",     LV_SYMBOL_WIFI },
     { "Wake",      "K"            },   // no built-in sun glyph
-    { "Quiet",     LV_SYMBOL_BELL },   // closest to a moon-style mute hint
+    { "Notify",    LV_SYMBOL_BELL },   // placeholder — Phase 4.1 push notifications
     { "Threshold", LV_SYMBOL_SETTINGS },
     { "Cats",      "*"            },   // no paw glyph; placeholder for IcCat
     { "Users",     "U"            },   // placeholder for IcUser
@@ -179,7 +185,10 @@ void SettingsView::redraw() {
                 break;
             }
             case 2:
-                lv_label_set_text(rowValues_[i], quietOn ? "on" : "off");
+                // Notify placeholder — Phase 4.1 push notifications.
+                // Em-dash signals "not yet configurable" without
+                // shouting placeholder noise like "tbd".
+                lv_label_set_text(rowValues_[i], "-");
                 break;
             case 3: {
                 if (coord_) {
@@ -283,8 +292,8 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return "wifiReset";
                 case 1:  // Wake-time editor (Phase D.1) — wired
                     return "wakeTimeEdit";
-                case 2:  // Quiet hours editor (Phase D.2) — wired
-                    return "quietHoursEdit";
+                case 2:  // Notify placeholder — Phase 4.1; no-op for now
+                    return nullptr;
                 case 3:  // Threshold editor (Phase D.3) — wired
                     return "thresholdEdit";
                 case 4:  // Cats list (Phase D.5) — wired
