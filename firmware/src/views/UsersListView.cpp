@@ -15,8 +15,9 @@ constexpr int LIST_PAD_X     = 28;
 
 int UsersListView::rowCount() const {
     if (!roster_) return 1;  // just Done
-    const bool hasRoom = roster_->count() < feedme::domain::UserRoster::MAX_USERS;
-    return 1 + roster_->count() + (hasRoom ? 1 : 0);
+    const bool hasRoom   = roster_->count() < feedme::domain::UserRoster::MAX_USERS;
+    const bool canRemove = roster_->count() >= 2;  // preserve N>=1 invariant
+    return 1 + roster_->count() + (hasRoom ? 1 : 0) + (canRemove ? 1 : 0);
 }
 
 void UsersListView::rowText(int idx, char* buf, int bufLen) const {
@@ -25,9 +26,14 @@ void UsersListView::rowText(int idx, char* buf, int bufLen) const {
     const int userIdx = idx - 1;
     if (userIdx < roster_->count()) {
         snprintf(buf, bufLen, "%s", roster_->at(userIdx).name);
-    } else {
-        snprintf(buf, bufLen, "+ Add user");
+        return;
     }
+    // Tail rows: "+ Add user" if there's room, then "× Remove user" if
+    // count >= 2. Mirrors CatsListView's rowText layout.
+    const int afterUsers = userIdx - roster_->count();
+    const bool hasRoom   = roster_->count() < feedme::domain::UserRoster::MAX_USERS;
+    if (afterUsers == 0 && hasRoom) { snprintf(buf, bufLen, "+ Add user"); return; }
+    snprintf(buf, bufLen, "x Remove user");
 }
 
 void UsersListView::build(lv_obj_t* parent) {
@@ -140,21 +146,28 @@ const char* UsersListView::handleInput(feedme::ports::TapEvent ev) {
         case E::Press: {
             if (selectedIdx_ == 0) return "settings";
             const int userIdx = selectedIdx_ - 1;
+            // User row → no editor in v0 (name editing currently needs
+            // the captive portal). Log + stay so the press registers.
             if (userIdx < roster_->count()) {
-                // No per-user editor in v0 — name editing needs the
-                // captive portal. Log + stay so the press registers.
                 Serial.printf("[users] selected '%s' (no editor in v0)\n",
                               roster_->at(userIdx).name);
                 return nullptr;
             }
-            // Add row.
-            const int newIdx = roster_->add();
-            if (newIdx >= 0) {
-                Serial.printf("[users] added user slot=%d id=%d name='%s'\n",
-                              newIdx, roster_->at(newIdx).id,
-                              roster_->at(newIdx).name);
+            // Tail rows: "+ Add user" if there's room, then "× Remove user".
+            const int afterUsers = userIdx - roster_->count();
+            const bool hasRoom   = roster_->count() < feedme::domain::UserRoster::MAX_USERS;
+            if (afterUsers == 0 && hasRoom) {
+                const int newIdx = roster_->add();
+                if (newIdx >= 0) {
+                    Serial.printf("[users] added user slot=%d id=%d name='%s'\n",
+                                  newIdx, roster_->at(newIdx).id,
+                                  roster_->at(newIdx).name);
+                }
+                return nullptr;
             }
-            return nullptr;
+            // × Remove user — opens the picker sub-list. Only ever
+            // shown when N>=2 per rowCount above.
+            return "userRemove";
         }
         default:
             return nullptr;

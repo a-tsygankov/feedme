@@ -79,6 +79,28 @@ public:
         return count_ - 1;
     }
 
+    // Remove the user at `slot`. Refuses when count_ <= 1 (preserves
+    // the N>=1 invariant — a household always has someone to attribute
+    // feeds to). Returns true if the remove went through.
+    //
+    // The user's stable id is NOT reused (nextId_ keeps climbing) so
+    // any persisted events that reference it stay unambiguous in the
+    // backend. Slot indices renumber after removal — users above
+    // `slot` shift down. The picker selection clears (devices are
+    // shared; the next feed picks fresh anyway).
+    bool remove(int slot) {
+        if (slot < 0 || slot >= count_) return false;
+        if (count_ <= 1) return false;
+        for (int i = slot; i < count_ - 1; ++i) {
+            users_[i] = users_[i + 1];
+        }
+        --count_;
+        users_[count_] = User{};
+        currentFeederIdx_ = -1;  // any cached selection is now stale
+        dirty_ = true;
+        return true;
+    }
+
     void setName(int i, const char* name) {
         if (i < 0 || i >= count_ || !name) return;
         if (strncmp(users_[i].name, name, User::NAME_CAP) == 0) return;

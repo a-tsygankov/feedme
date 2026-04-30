@@ -32,6 +32,7 @@
 #include "views/SetupView.h"
 #include "views/ThresholdEditView.h"
 #include "views/TimeZoneEditView.h"
+#include "views/UserRemoveView.h"
 #include "views/UsersListView.h"
 #include "views/WakeTimeEditView.h"
 #include "views/WifiResetView.h"
@@ -144,6 +145,7 @@ private:
     feedme::views::CatRemoveView       catRemoveView_;
     // Phase D.6 — Users roster (no per-user editor in v0).
     feedme::views::UsersListView       usersListView_;
+    feedme::views::UserRemoveView      userRemoveView_;
 #if defined(FEEDME_HAS_HOPPER)
     // Phase C.6 — Hopper level (feature-flagged; no load cell on this
     // board, so contents are static placeholder until real hardware).
