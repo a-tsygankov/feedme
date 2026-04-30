@@ -140,6 +140,7 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&quietHoursEditView_);
     screens_.registerView(&thresholdEditView_);
     screens_.registerView(&wifiResetView_);
+    screens_.registerView(&wifiSwitchView_);
     screens_.registerView(&catsListView_);
     screens_.registerView(&catEditView_);
     screens_.registerView(&catRemoveView_);

@@ -36,6 +36,7 @@
 #include "views/UsersListView.h"
 #include "views/WakeTimeEditView.h"
 #include "views/WifiResetView.h"
+#include "views/WifiSwitchView.h"
 #if defined(FEEDME_HAS_HOPPER)
 #  include "views/HopperView.h"
 #endif
@@ -88,6 +89,7 @@ public:
     feedme::views::LockConfirmView& lockConfirmView() { return lockConfirmView_; }
     feedme::views::ThresholdEditView& thresholdEditView() { return thresholdEditView_; }
     feedme::views::WifiResetView&     wifiResetView()     { return wifiResetView_; }
+    feedme::views::WifiSwitchView&    wifiSwitchView()    { return wifiSwitchView_; }
     feedme::domain::CatRoster&        roster()            { return roster_; }
     feedme::domain::UserRoster&       userRoster()        { return userRoster_; }
     // Per-cat tunables now live on the active cat. Callers used to
@@ -135,8 +137,10 @@ private:
     feedme::views::QuietHoursEditView  quietHoursEditView_;
     // Phase D.3 — Hungry-threshold editor.
     feedme::views::ThresholdEditView   thresholdEditView_;
-    // Phase D.4 — Wi-Fi reset confirmation.
+    // Phase D.4 — "Switch Wi-Fi" confirmation (was "reset").
     feedme::views::WifiResetView       wifiResetView_;
+    // In-place AP+STA portal status while a switch is in flight.
+    feedme::views::WifiSwitchView      wifiSwitchView_;
     // Phase 2.4 — captive-portal setup screen (text-only).
     feedme::views::SetupView           setupView_;
     // Phase D.5 — Cats roster + per-cat slug picker.

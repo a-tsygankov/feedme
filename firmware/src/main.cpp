@@ -399,17 +399,20 @@ void setup() {
     display.settingsView().setCoordinator(&displayCoord);
     display.thresholdEditView().setCoordinator(&displayCoord);
     display.lockConfirmView().setSensors(&taps, &button);
-    display.wifiResetView().setOnConfirm(+[]() {
-        // Clear stored Wi-Fi creds + hid so next boot lands in the
-        // captive-portal setup mode (the only escape hatch unless a
-        // build-flag fallback is also set).
 #if !defined(SIMULATOR)
-        prefs.clearWifiCreds();
-        Serial.println("[wifi] reset — NVS creds cleared, restarting");
-        delay(100);          // let the print drain over USB-CDC
-        ESP.restart();
+    display.wifiSwitchView().setPortal(&captivePortal);
+#endif
+    display.wifiResetView().setOnConfirm(+[]() {
+        // In-place AP+STA: bring up the SoftAP alongside the existing
+        // STA connection. Existing feed/snooze/mood state is preserved
+        // — no reboot. WifiSwitchView watches the portal state and
+        // bounces back to settings on success/failure. The AP is torn
+        // down by WifiSwitchView::onLeave.
+#if !defined(SIMULATOR)
+        Serial.println("[wifi] starting in-place portal (AP+STA)");
+        captivePortal.beginInPlace(prefs);
 #else
-        Serial.println("[wifi] reset (sim) — no reboot");
+        Serial.println("[wifi] switch (sim) — no portal");
 #endif
     });
     feeding.loadHistoryFromStorage();
@@ -516,6 +519,13 @@ void loop() {
     button.poll();
 #if !defined(SIMULATOR)
     leds.tick();
+    // Pump the captive portal whenever it's running an in-place switch.
+    // (Boot-mode portal runs in its own blocking loop in setup() and
+    // never reaches here.) The state machine inside handle() advances
+    // the deferred disconnect/reconnect and watches WiFi.status().
+    if (captivePortal.state() != feedme::adapters::WifiCaptivePortal::State::Idle) {
+        captivePortal.handle();
+    }
 #endif
 
     if (now - lastServiceTickMs >= 1000) {

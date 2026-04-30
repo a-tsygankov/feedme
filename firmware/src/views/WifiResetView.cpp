@@ -65,11 +65,15 @@ const char* WifiResetView::handleInput(feedme::ports::TapEvent ev) {
     switch (ev) {
         case E::Tap:
         case E::Press:
-            Serial.println("[wifi] reset confirmed — invoking callback");
+            Serial.println("[wifi] switch confirmed — invoking callback");
             if (onConfirm_) onConfirm_();
-            // If onConfirm reboots (real hardware), this return is dead.
-            // On simulator there's no reboot; bounce back to settings.
-            return "settings";
+            // The callback now starts the in-place captive portal
+            // (AP+STA) instead of clearing creds and rebooting. Hand
+            // the user off to the status view so they see the AP
+            // info + connection state. On simulator the callback
+            // is a noop; the WifiSwitchView shows "(no portal)" and
+            // long-press bounces back.
+            return "wifiSwitch";
         case E::RotateCW:
         case E::RotateCCW:
             return "settings";  // cancel
