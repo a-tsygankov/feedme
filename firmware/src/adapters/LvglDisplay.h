@@ -5,6 +5,7 @@
 #include "domain/MealSchedule.h"
 #include "domain/PortionState.h"
 #include "domain/QuietWindow.h"
+#include "domain/SleepTimeout.h"
 #include "domain/TimeZone.h"
 #include "domain/UserRoster.h"
 #include "domain/WakeTime.h"
@@ -30,6 +31,7 @@
 #include "views/ScreenManager.h"
 #include "views/SettingsView.h"
 #include "views/SetupView.h"
+#include "views/SleepTimeoutEditView.h"
 #include "views/ThresholdEditView.h"
 #include "views/TimeZoneEditView.h"
 #include "views/UserRemoveView.h"
@@ -101,6 +103,8 @@ public:
     feedme::domain::QuietWindow&    quiet()        { return quiet_; }
     feedme::domain::WakeTime&       wake()         { return wake_; }
     feedme::domain::TimeZone&       timezone()     { return tz_; }
+    feedme::domain::SleepTimeout&   sleepTimeout() { return sleep_; }
+    feedme::views::SleepTimeoutEditView& sleepTimeoutEditView() { return sleepTimeoutEditView_; }
 
 private:
     // Multi-screen scene graph: ScreenManager owns the views, hides
@@ -133,6 +137,8 @@ private:
     feedme::views::WakeTimeEditView    wakeTimeEditView_;
     // Timezone offset editor.
     feedme::views::TimeZoneEditView    timezoneEditView_;
+    // Sleep-timeout (LCD backlight) editor.
+    feedme::views::SleepTimeoutEditView sleepTimeoutEditView_;
     // Phase D.2 — Quiet hours start/end editor.
     feedme::views::QuietHoursEditView  quietHoursEditView_;
     // Phase D.3 — Hungry-threshold editor.
@@ -172,6 +178,10 @@ private:
     // when projecting unix epoch into hour/minute for the clock face
     // and for local-hour comparisons in Schedule / Quiet.
     feedme::domain::TimeZone     tz_;
+
+    // Display-sleep idle timeout (minutes). 0 = never. PowerManager
+    // in main.cpp consumes the value and toggles the LCD backlight.
+    feedme::domain::SleepTimeout sleep_;
 
     // The legacy LVGL-primitive cat is kept compiled (per
     // feedmeknob-plan.md open question 3 — answered "keep") but is no

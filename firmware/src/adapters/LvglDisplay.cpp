@@ -106,7 +106,9 @@ void LvglDisplay::buildScene() {
     settingsView_.setRoster(&roster_);
     settingsView_.setUserRoster(&userRoster_);
     settingsView_.setTimeZone(&tz_);
+    settingsView_.setSleepTimeout(&sleep_);
     timezoneEditView_.setTimeZone(&tz_);
+    sleepTimeoutEditView_.setSleepTimeout(&sleep_);
     catsListView_.setRoster(&roster_);
     catsListView_.setEditTarget(&catEditView_);
     catEditView_.setRoster(&roster_);
@@ -137,6 +139,7 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&lockConfirmView_);
     screens_.registerView(&wakeTimeEditView_);
     screens_.registerView(&timezoneEditView_);
+    screens_.registerView(&sleepTimeoutEditView_);
     screens_.registerView(&quietHoursEditView_);
     screens_.registerView(&thresholdEditView_);
     screens_.registerView(&wifiResetView_);

@@ -45,6 +45,7 @@ const ItemSpec kItems[SettingsView::ITEM_COUNT] = {
     { "Cats",      "*"            },   // no paw glyph; placeholder for IcCat
     { "Users",     "U"            },   // placeholder for IcUser
     { "Timezone",  "Z"            },   // placeholder for IcGlobe
+    { "Sleep",     LV_SYMBOL_POWER }, // power-symbol stand-in for sleep timeout
 };
 
 }  // namespace
@@ -134,6 +135,7 @@ void SettingsView::redraw() {
     const int  catCount     = roster_      ? roster_->count()      : -1;
     const int  userCount    = userRoster_  ? userRoster_->count()  : -1;
     const int  tzMin        = tz_          ? tz_->offsetMin()      : -99999;
+    const int  sleepMin     = sleep_       ? sleep_->minutes()     : -99999;
 
     const bool changed = firstRender_
                          || selectedIdx_ != lastDrawnIdx_
@@ -145,7 +147,8 @@ void SettingsView::redraw() {
                          || thresholdSec != lastDrawnThresholdSec_
                          || catCount     != lastDrawnCatCount_
                          || userCount    != lastDrawnUserCount_
-                         || tzMin        != lastDrawnTzMin_;
+                         || tzMin        != lastDrawnTzMin_
+                         || sleepMin     != lastDrawnSleepMin_;
     if (!changed) return;
 
     for (int i = 0; i < ITEM_COUNT; ++i) {
@@ -264,6 +267,24 @@ void SettingsView::redraw() {
                 }
                 break;
             }
+            case 7: {
+                // Sleep timeout. 0 minutes → "--" (sleep disabled);
+                // matches the editor's display so the user sees the
+                // same string both places.
+                if (sleep_) {
+                    const int m = sleep_->minutes();
+                    if (m == 0) {
+                        lv_label_set_text(rowValues_[i], "--");
+                    } else {
+                        char buf[10];
+                        snprintf(buf, sizeof(buf), "%dmin", m);
+                        lv_label_set_text(rowValues_[i], buf);
+                    }
+                } else {
+                    lv_label_set_text(rowValues_[i], "-");
+                }
+                break;
+            }
         }
     }
 
@@ -277,6 +298,7 @@ void SettingsView::redraw() {
     lastDrawnCatCount_         = catCount;
     lastDrawnUserCount_        = userCount;
     lastDrawnTzMin_            = tzMin;
+    lastDrawnSleepMin_         = sleepMin;
     firstRender_               = false;
 }
 
@@ -322,6 +344,8 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return "usersList";
                 case 6:  // Timezone editor — wired
                     return "timezoneEdit";
+                case 7:  // Sleep timeout editor — wired
+                    return "sleepTimeoutEdit";
             }
             return nullptr;
         // Long-press / long-touch → ScreenManager fallback to parent().

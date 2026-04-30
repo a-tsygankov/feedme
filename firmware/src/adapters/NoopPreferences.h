@@ -132,6 +132,9 @@ public:
     int  getActiveCatIdx(int d) override { return activeCatHasValue_ ? activeCatIdx_ : d; }
     void setActiveCatIdx(int v) override { activeCatIdx_ = v; activeCatHasValue_ = true; }
 
+    int  getSleepTimeoutMin(int d) override { return sleepHasValue_ ? sleepMin_ : d; }
+    void setSleepTimeoutMin(int v) override { sleepMin_ = v; sleepHasValue_ = true; }
+
     int  getUserCount(int d) override { return userCountSet_ ? userCount_ : d; }
     void setUserCount(int v) override { userCount_ = v; userCountSet_ = true; }
     int  getUserId(int slot, int d) override {
@@ -217,6 +220,8 @@ private:
     bool     catColorSet_[4]   = {false};
     uint32_t userColor_  [4]   = {0};
     bool     userColorSet_[4]  = {false};
+    int      sleepMin_         = 0;
+    bool     sleepHasValue_    = false;
 };
 
 }  // namespace feedme::adapters
