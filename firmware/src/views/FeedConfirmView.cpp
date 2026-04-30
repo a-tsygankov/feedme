@@ -126,6 +126,15 @@ void FeedConfirmView::redraw() {
         lastDrawnSlug_[3]   = '\0';
         lastDrawnActiveIdx_ = displayedSlot;
     }
+    // Tint: a specific cat → that cat's color; FEED_ALL → white (the
+    // image acts as a generic "all cats" placeholder, not a portrait).
+    if (feedAll) {
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+    } else {
+        lv_obj_set_style_img_recolor(catImg_,
+            lv_color_hex(cat.avatarColor), 0);
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+    }
 
     // Portion label — for ALL show the total grams; otherwise the
     // selected cat's portion. Arc still uses 0..MAX_G mapping for a

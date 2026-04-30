@@ -87,9 +87,20 @@ void FeederPickerView::redraw() {
         }
         lv_obj_set_style_opa(rows_[i], opa, 0);
 
+        // User rows tinted with each user's avatar colour. Cancel row
+        // (slot 0) uses selection-state colour.
         const bool isSel = (offset == 0);
-        lv_obj_set_style_text_color(labels_[i],
-            lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        const int  uIdx  = i - 1;
+        const bool isUserRow = roster_
+                               && uIdx >= 0
+                               && uIdx < roster_->count();
+        if (isUserRow) {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(roster_->at(uIdx).avatarColor), 0);
+        } else {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        }
 
         char buf[24];
         rowText(i, buf, sizeof(buf));

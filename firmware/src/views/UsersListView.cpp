@@ -83,9 +83,21 @@ void UsersListView::redraw() {
         }
         lv_obj_set_style_opa(rows_[i], opa, 0);
 
+        // User-row labels carry the user's avatar tint (so the colour
+        // identifies the user, not the focus). Done / +Add rows fall
+        // back to selection-state colour.
         const bool isSel = (offset == 0);
-        lv_obj_set_style_text_color(labels_[i],
-            lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        const int  uIdx  = i - 1;
+        const bool isUserRow = roster_
+                               && uIdx >= 0
+                               && uIdx < roster_->count();
+        if (isUserRow) {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(roster_->at(uIdx).avatarColor), 0);
+        } else {
+            lv_obj_set_style_text_color(labels_[i],
+                lv_color_hex(isSel ? kTheme.accent : kTheme.dim), 0);
+        }
 
         char buf[32];
         rowText(i, buf, sizeof(buf));

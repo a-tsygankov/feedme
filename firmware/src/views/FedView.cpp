@@ -47,16 +47,35 @@ void FedView::build(lv_obj_t* parent) {
 void FedView::onEnter() {
     enteredMs_ = millis();
     dismissed_ = false;
-    // "fed by Alice" attribution for multi-user households. Single-user
-    // (silent default) shows nothing — the primary user is implicit
-    // and the line would be visual noise. PouringView leaves the
+    // "by Alice" attribution for multi-user households, coloured by
+    // the user's avatar tint. Single-user (silent default) shows
+    // nothing — the primary user is implicit. PouringView leaves the
     // picker selection set; we consume it on leave (below).
     if (users_ && users_->count() >= 2) {
         char buf[24];
         snprintf(buf, sizeof(buf), "by  %s", users_->currentFeederName());
         lv_label_set_text(footLbl_, buf);
+        // Tint the attribution by the active feeder's colour. Picker
+        // unset (e.g. user dismissed without choosing) → primary user
+        // = slot 0, same lookup.
+        const int idx = users_->currentFeederIdx();
+        const int u   = (idx >= 0 && idx < users_->count()) ? idx : 0;
+        lv_obj_set_style_text_color(footLbl_,
+            lv_color_hex(users_->at(u).avatarColor), 0);
     } else {
         lv_label_set_text(footLbl_, "");
+    }
+    // Tint the hero cat by the just-fed cat's colour. FEED_ALL keeps
+    // the white silhouette since no single cat is being represented.
+    if (cats_ && cats_->count() > 0) {
+        const int sel = cats_->feedSelection();
+        if (sel == feedme::domain::CatRoster::FEED_ALL) {
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+        } else if (sel >= 0 && sel < cats_->count()) {
+            lv_obj_set_style_img_recolor(catImg_,
+                lv_color_hex(cats_->at(sel).avatarColor), 0);
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+        }
     }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }

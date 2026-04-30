@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/CatRoster.h"
 #include "domain/UserRoster.h"
 #include "views/IView.h"
 
@@ -19,6 +20,7 @@ public:
     static constexpr uint32_t AUTO_DISMISS_MS = 1500;
 
     void setUserRoster(feedme::domain::UserRoster* users) { users_ = users; }
+    void setCatRoster (feedme::domain::CatRoster*  cats)  { cats_  = cats;  }
 
     const char* name() const override { return "fed"; }
     void  build(lv_obj_t* parent) override;
@@ -30,6 +32,7 @@ public:
 
 private:
     feedme::domain::UserRoster* users_ = nullptr;
+    feedme::domain::CatRoster*  cats_  = nullptr;
 
     lv_obj_t* root_     = nullptr;
     lv_obj_t* catImg_   = nullptr;

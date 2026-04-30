@@ -96,6 +96,16 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
     if (firstRender_ || frame.mood != lastFrame_.mood) {
         lv_img_set_src(catImg_, catForMood(frame.mood));
     }
+    // Tint the silhouette with the active cat's avatar color. White
+    // pixels in the PNG multiply with the recolor at COVER opacity →
+    // tinted image, shading curves preserved.
+    if (roster_ && rosterCount > 0) {
+        const uint32_t tint = roster_->active().avatarColor;
+        lv_obj_set_style_img_recolor(catImg_, lv_color_hex(tint), 0);
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+    }
 
     char timeBuf[8];
     snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", frame.hour, frame.minute);

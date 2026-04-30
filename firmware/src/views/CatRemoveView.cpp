@@ -90,12 +90,21 @@ void CatRemoveView::redraw() {
         lv_obj_set_style_opa(rows_[i], opa, 0);
 
         const bool isSel = (offset == 0);
-        // Cancel row stays dim; cat rows turn accent on selection (red
-        // would be more conventional for destructive but our palette
-        // doesn't have one — accent serves as "this will act").
-        const uint32_t color = isSel
-            ? (i == 0 ? kTheme.dim : kTheme.accent)
-            : kTheme.dim;
+        // Selected cat row → accent (red would be more conventional for
+        // destructive but our palette doesn't have one — accent serves
+        // as "this will act"). Non-selected cat rows wear their own
+        // avatar tint so the user can identify which cat is which
+        // before highlighting one. Cancel row (i==0) stays dim.
+        const int  catIdx = i - 1;
+        const bool isCatRow = roster_
+                              && catIdx >= 0
+                              && catIdx < roster_->count();
+        uint32_t color = kTheme.dim;
+        if (isSel && i != 0) {
+            color = kTheme.accent;
+        } else if (isCatRow) {
+            color = roster_->at(catIdx).avatarColor;
+        }
         lv_obj_set_style_text_color(labels_[i], lv_color_hex(color), 0);
 
         char buf[32];

@@ -106,6 +106,20 @@ void PouringView::onEnter() {
     cancelled_ = false;
     lastSweep_ = -1;
     lv_arc_set_value(arcFg_, 0);
+    // Tint the placeholder hero by the cat being fed. FEED_ALL keeps
+    // the white silhouette since the image stands in for "all cats".
+    if (roster_ && roster_->count() > 0) {
+        const int sel = roster_->feedSelection();
+        if (sel == feedme::domain::CatRoster::FEED_ALL) {
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_TRANSP, 0);
+        } else if (sel >= 0 && sel < roster_->count()) {
+            // COVER recolor (full tint of underlying white) combined
+            // with the existing img_opa = 50 → faded tinted silhouette.
+            lv_obj_set_style_img_recolor(catImg_,
+                lv_color_hex(roster_->at(sel).avatarColor), 0);
+            lv_obj_set_style_img_recolor_opa(catImg_, LV_OPA_COVER, 0);
+        }
+    }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 
