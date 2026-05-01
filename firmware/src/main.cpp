@@ -464,6 +464,7 @@ void setup() {
     display.settingsView().setCoordinator(&displayCoord);
     display.thresholdEditView().setCoordinator(&displayCoord);
     display.lockConfirmView().setSensors(&taps, &button);
+    display.menuView().setTouchSensor(&taps);
 #if !defined(SIMULATOR)
     display.wifiSwitchView().setPortal(&captivePortal);
 #endif

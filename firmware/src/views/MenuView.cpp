@@ -2,6 +2,7 @@
 
 #include "views/Theme.h"
 
+#include <Arduino.h>
 #include <math.h>
 
 namespace feedme::views {
@@ -82,6 +83,23 @@ void MenuView::build(lv_obj_t* parent) {
     }
 }
 
+int MenuView::hitTest(int x, int y) const {
+    // Glyph radius is GLYPH_PX/2; allow a small slack so finger-fat
+    // taps near the edge still register. Sum of squared distances is
+    // cheaper than sqrt and exact for circular hit-test.
+    constexpr int RADIUS    = GLYPH_PX / 2 + 8;       // 28 px hit area
+    constexpr int RADIUS_SQ = RADIUS * RADIUS;
+    for (int i = 0; i < ITEM_COUNT; ++i) {
+        const double ang = (-90.0 + (360.0 / ITEM_COUNT) * i) * M_PI / 180.0;
+        const int cx = 120 + static_cast<int>(R_ORBIT * cos(ang));
+        const int cy = 120 + static_cast<int>(R_ORBIT * sin(ang));
+        const int dx = x - cx;
+        const int dy = y - cy;
+        if (dx * dx + dy * dy <= RADIUS_SQ) return i;
+    }
+    return -1;
+}
+
 void MenuView::applySelection() {
     for (int i = 0; i < ITEM_COUNT; ++i) {
         const bool sel = (i == selected_);
@@ -129,7 +147,28 @@ const char* MenuView::handleInput(feedme::ports::TapEvent ev) {
             selected_ = (selected_ + ITEM_COUNT - 1) % ITEM_COUNT;
             applySelection();
             return nullptr;
-        case E::Tap:
+        case E::Tap: {
+            // Positional tap: if the touch coords are available AND
+            // landed on one of the four glyphs, jump straight to that
+            // item (skips the rotate-to-highlight step). Falls back
+            // to "select the highlighted one" when coords aren't
+            // available or the tap missed all glyphs.
+            if (touch_) {
+                const int x = touch_->lastTouchX();
+                const int y = touch_->lastTouchY();
+                if (x >= 0 && y >= 0) {
+                    const int hit = hitTest(x, y);
+                    if (hit >= 0) {
+                        selected_ = hit;
+                        applySelection();
+                        Serial.printf("[menu] tap (%d,%d) → glyph %d (%s)\n",
+                                      x, y, hit, kDest[hit]);
+                        return kDest[hit];
+                    }
+                }
+            }
+            return kDest[selected_];
+        }
         case E::Press:
             return kDest[selected_];
         case E::DoubleTap:

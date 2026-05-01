@@ -9,6 +9,12 @@ namespace {
 
 constexpr uint8_t I2C_ADDR        = 0x15;
 constexpr uint8_t REG_FINGER_NUM  = 0x02;
+// Touch coordinates layout (CST816D):
+//   0x03: XposH  (low 4 bits = X high nibble)
+//   0x04: XposL  (X low byte)
+//   0x05: YposH  (low 4 bits = Y high nibble)
+//   0x06: YposL  (Y low byte)
+constexpr uint8_t REG_XPOS_H      = 0x03;
 
 // Pin map (CrowPanel 1.28-inch HMI, per Elecrow wiki).
 constexpr int PIN_SDA = 6;
@@ -36,6 +42,23 @@ uint8_t readReg(uint8_t reg) {
     if (Wire.requestFrom(static_cast<uint8_t>(I2C_ADDR),
                          static_cast<uint8_t>(1)) != 1) return 0;
     return Wire.read();
+}
+
+// Read the current touch coordinates as a 4-byte burst from REG_XPOS_H.
+// Returns false if the I²C transfer fails or there's no active touch.
+bool readTouchPos(int& outX, int& outY) {
+    Wire.beginTransmission(I2C_ADDR);
+    Wire.write(REG_XPOS_H);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(static_cast<uint8_t>(I2C_ADDR),
+                         static_cast<uint8_t>(4)) != 4) return false;
+    const uint8_t xh = Wire.read();
+    const uint8_t xl = Wire.read();
+    const uint8_t yh = Wire.read();
+    const uint8_t yl = Wire.read();
+    outX = (static_cast<int>(xh & 0x0F) << 8) | xl;
+    outY = (static_cast<int>(yh & 0x0F) << 8) | yl;
+    return true;
 }
 
 }  // namespace
@@ -74,10 +97,19 @@ void Cst816TapSensor::poll() {
     const bool touching = readReg(REG_FINGER_NUM) > 0;
 
     if (touching && !wasTouching_) {
-        // Touch just started.
+        // Touch just started — capture the initial position now. Held
+        // touches that end up firing as long-touch (cancel/back) keep
+        // this initial reading; quick taps overwrite it on release
+        // below for max precision (the 50 Hz poll cadence makes the
+        // start vs end coords essentially identical, but consistent).
         wasTouching_    = true;
         touchStartMs_   = now;
         longTouchFired_ = false;
+        int x = -1, y = -1;
+        if (readTouchPos(x, y)) {
+            lastTouchX_ = x;
+            lastTouchY_ = y;
+        }
     } else if (touching && wasTouching_) {
         // Held — fire LongTouch eagerly once the threshold trips so
         // the user gets feedback while still pressing.

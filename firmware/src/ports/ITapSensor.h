@@ -49,6 +49,16 @@ public:
     // at the 600 ms threshold and gives no release signal afterwards.
     // Default is false so adapters that don't need this stay correct.
     virtual bool isPressed() const { return false; }
+
+    // Last-touch coordinates in screen pixels (0..239 for both axes
+    // on the 240×240 round LCD), captured at touch-end. Available for
+    // touch sensors that decode position; defaults to -1 / -1 for
+    // sensors without coords (the encoder button) so callers can
+    // sniff for "did we get a real position" with `>= 0`. Views that
+    // care (e.g. MenuView for tap-on-glyph) query this in handleInput
+    // when a Tap event arrives.
+    virtual int lastTouchX() const { return -1; }
+    virtual int lastTouchY() const { return -1; }
 };
 
 }  // namespace feedme::ports
