@@ -123,6 +123,26 @@ export interface User {
   color: number;
 }
 
+// One row in /api/dashboard/cats — static cat fields plus the live
+// per-cat state used to drive the mood ring + status line.
+export interface DashboardCat extends Cat {
+  lastFedAt:     number | null;   // unix sec; null = never fed
+  lastFedBy:     string | null;
+  lastEventType: "feed" | "snooze" | string | null;
+  secondsSince:  number | null;   // computed server-side from `now`
+  todayCount:    number;          // feed events in local "today"
+}
+
+// One row in /api/dashboard/history.
+export interface HistoryEvent {
+  id:    number;
+  ts:    number;
+  type:  string;       // "feed" | "snooze" | …
+  by:    string;
+  note:  string | null;
+  cat:   string;       // stringified slot_id; "primary" for legacy
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 export interface HomeInfo {
   hid: string;          // the home name — its unique identifier
@@ -171,6 +191,31 @@ export const api = {
   catsCreate: (body: Partial<Cat>)                        => apiRaw<{ cat:   Cat   }>("/api/cats",            { method: "POST",   body }),
   catsUpdate: (slotId: number, patch: Partial<Cat>)       => apiRaw<{ cat:   Cat   }>(`/api/cats/${slotId}`,  { method: "PATCH",  body: patch }),
   catsDelete: (slotId: number)                            => apiRaw<{ ok:    true  }>(`/api/cats/${slotId}`,  { method: "DELETE" }),
+
+  // ── Dashboard ──────────────────────────────────────────────────
+  // Per-cat live state (last event + today count + the static cat
+  // fields). One round-trip drives the entire main dashboard grid.
+  // tzOffsetMin defaults to the browser's current offset so "today"
+  // is local-midnight to local-midnight.
+  dashboardCats: (tzOffsetMin?: number) => {
+    const off = tzOffsetMin ?? -new Date().getTimezoneOffset();
+    return apiRaw<{ now: number; tzOffsetMin: number; cats: DashboardCat[] }>(
+      `/api/dashboard/cats?tzOffset=${off}`,
+    );
+  },
+  dashboardFeed: (catSlotId: number, by: string, type: "feed" | "snooze" = "feed", note?: string) =>
+    apiRaw<{ ok: true; ts: number; type: string; by: string; catSlotId: number }>(
+      "/api/dashboard/feed",
+      { method: "POST", body: { catSlotId, by, type, note } },
+    ),
+  dashboardHistory: (catSlotId?: number, n = 10) => {
+    const params = new URLSearchParams();
+    if (catSlotId !== undefined) params.set("cat", String(catSlotId));
+    params.set("n", String(n));
+    return apiRaw<{ events: HistoryEvent[] }>(
+      `/api/dashboard/history?${params.toString()}`,
+    );
+  },
 
   // Users CRUD.
   usersList:   ()                                         => apiRaw<{ users: User[] }>("/api/users"),

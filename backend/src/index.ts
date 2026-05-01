@@ -10,6 +10,11 @@ import {
   getCats,
   updateCat,
 } from "./cats";
+import {
+  getDashboardCats,
+  getDashboardHistory,
+  postDashboardFeed,
+} from "./dashboard";
 import type { Env } from "./env";
 import {
   createUser,
@@ -386,6 +391,30 @@ export default {
       await env.DB.prepare("DELETE FROM households  WHERE hid = ?").bind(hid).run();
       console.log(`[auth] forgot home '${hid}'`);
       return json({ ok: true, hid });
+    }
+
+    // ── Dashboard endpoints (auth-required, derive home from token) ──
+    // Same data the firmware-facing /api/state + /api/feed + /api/history
+    // expose, but: (a) auth-bound to the signed-in home so the client
+    // never gets to pick a hid, and (b) one-shot per-cat aggregates
+    // for the dashboard grid (last event + today's count) so rendering
+    // is a single round-trip.
+
+    // GET /api/dashboard/cats?tzOffset=<min>
+    if (url.pathname === "/api/dashboard/cats" && req.method === "GET") {
+      const denied = requireAuth(); if (denied) return denied;
+      return getDashboardCats(env, authed!.hid, url);
+    }
+    // POST /api/dashboard/feed { catSlotId, by, type?, note? }
+    if (url.pathname === "/api/dashboard/feed" && req.method === "POST") {
+      const denied = requireAuth(); if (denied) return denied;
+      const body = await req.json().catch(() => null);
+      return postDashboardFeed(env, authed!.hid, body);
+    }
+    // GET /api/dashboard/history?cat=<slot>&n=<limit>
+    if (url.pathname === "/api/dashboard/history" && req.method === "GET") {
+      const denied = requireAuth(); if (denied) return denied;
+      return getDashboardHistory(env, authed!.hid, url);
     }
 
     // GET /api/cats — list active cats for the authed household.
