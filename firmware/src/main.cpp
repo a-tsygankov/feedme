@@ -320,14 +320,38 @@ void setup() {
     }
 
 #  if defined(FEEDME_BACKEND_URL)
-    // Override WifiNetwork's hid with the NVS value if one was
-    // captured at setup. Falls back to the build-flag default
-    // already in the constructor.
+    // Auto-generate hid on first boot (and after a pairing reset). The
+    // device picks its own identifier — `feedme-{mac6}` for the first
+    // generation, `feedme-{mac6}-{n}` after `n` pairing resets — so
+    // each reset cycle produces a NEW backend household and the
+    // orphaned old one stays harmless. Stable thereafter: stored in
+    // NVS, used for every /api/* call until the next reset.
     {
-        char nvsHid[32]{};
-        if (prefs.getHid(nvsHid, sizeof(nvsHid)) && nvsHid[0] != '\0') {
-            wifiNetwork.setHid(nvsHid);
+        char nvsHid[40]{};
+        const bool haveHid = prefs.getHid(nvsHid, sizeof(nvsHid))
+                             && nvsHid[0] != '\0';
+        if (!haveHid) {
+            uint8_t mac[6];
+            WiFi.macAddress(mac);
+            const int resetCount = prefs.getHidResetCount(0);
+            char generated[40]{};
+            if (resetCount <= 0) {
+                snprintf(generated, sizeof(generated),
+                         "feedme-%02x%02x%02x%02x%02x%02x",
+                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            } else {
+                snprintf(generated, sizeof(generated),
+                         "feedme-%02x%02x%02x%02x%02x%02x-%d",
+                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+                         resetCount);
+            }
+            prefs.setHid(generated);
+            Serial.printf("[setup] generated hid='%s' (reset=%d)\n",
+                          generated, resetCount);
+            // Re-read into nvsHid so the rest of setup uses it.
+            std::strncpy(nvsHid, generated, sizeof(nvsHid) - 1);
         }
+        wifiNetwork.setHid(nvsHid);
     }
     // Give WifiNetwork a live reference to the TimeZone so each
     // /api/state poll appends the user's offset. Backend uses it
@@ -486,6 +510,64 @@ void setup() {
         Serial.println("[wifi] switch (sim) — no portal");
 #endif
     });
+
+    // ── Pairing screen wiring ─────────────────────────────────────────
+    // PairingView shows the QR code that deep-links into the webapp's
+    // /setup flow with the device's hid pre-filled. Shown on first boot
+    // (and after any "Reset pairing" cycle) until the user taps to
+    // dismiss it; that tap fires the onPaired callback below which
+    // flips the NVS paired flag so the screen doesn't re-appear.
+    //
+    // The hid + URL strings are kept in static buffers so the view can
+    // hold pointers for its lifetime without copying.
+#if !defined(SIMULATOR) && defined(FEEDME_BACKEND_URL)
+    {
+        static char gPairHid[40] = {0};
+        static char gPairUrl[160] = {0};
+        char nvsHid[40]{};
+        const bool haveHid = prefs.getHid(nvsHid, sizeof(nvsHid))
+                             && nvsHid[0] != '\0';
+        if (haveHid) {
+            std::strncpy(gPairHid, nvsHid, sizeof(gPairHid) - 1);
+            // Web app origin — distinct from the Worker origin because
+            // the static SPA + the API live on different Cloudflare
+            // surfaces. Hard-coded for now; could be a build flag later.
+            snprintf(gPairUrl, sizeof(gPairUrl),
+                     "https://feedme-webapp.pages.dev/setup?hid=%s",
+                     gPairHid);
+        }
+        display.pairingView().setHid(gPairHid);
+        display.pairingView().setUrl(gPairUrl);
+        display.pairingView().setOnPaired(+[]() {
+            prefs.setPaired(true);
+            Serial.println("[pairing] dismissed — paired flag set");
+        });
+
+        // Reset-pairing confirmation. On confirm: bump the reset
+        // counter, drop the hid + paired flag from NVS, reboot. The
+        // boot path will then regenerate hid as feedme-{mac6}-{n+1}
+        // and PairingView will show the new QR. Old backend household
+        // record is orphaned (manual cleanup on the server).
+        display.resetPairConfirmView().setOnConfirm(+[]() {
+            const int next = prefs.getHidResetCount(0) + 1;
+            prefs.setHidResetCount(next);
+            prefs.setHid("");          // empty → regenerated next boot
+            prefs.setPaired(false);    // PairingView re-shows
+            Serial.printf("[pairing] reset (n=%d) — rebooting\n", next);
+            delay(300);
+            ESP.restart();
+        });
+
+        // First boot? Have BootView land on the pairing screen instead
+        // of idle so the QR is the first interactive thing the user
+        // sees. Once paired (after the first tap), BootView reverts to
+        // its default "idle" landing on every subsequent boot.
+        if (haveHid && !prefs.getPaired(false)) {
+            Serial.println("[pairing] device unpaired — showing QR after boot");
+            display.bootView().setNext("pairing");
+        }
+    }
+#endif
     feeding.loadHistoryFromStorage();
     taps.begin();
     button.begin();

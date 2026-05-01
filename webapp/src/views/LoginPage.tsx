@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, auth } from "../lib/api";
 
 // PIN-based household login. Two-step:
@@ -14,12 +14,32 @@ import { ApiError, api, auth } from "../lib/api";
 // Authorization: Bearer <token>.
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [hid, setHid] = useState("");
+  const [params] = useSearchParams();
+  const initialHid = (params.get("hid") ?? "").trim();
+  const [hid, setHid] = useState(initialHid);
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
   const [phase, setPhase] = useState<"hid" | "login" | "setup">("hid");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // If we landed here with ?hid= already in the URL (e.g. via the
+  // SetupPage "this household is already paired → sign in" handoff),
+  // probe the backend automatically so the user lands directly on the
+  // PIN prompt instead of having to press Continue.
+  useEffect(() => {
+    if (!initialHid) return;
+    let cancelled = false;
+    api.exists(initialHid)
+      .then(({ exists }) => {
+        if (cancelled) return;
+        setPhase(exists ? "login" : "setup");
+      })
+      .catch(() => { /* fall back to manual flow on error */ });
+    return () => { cancelled = true; };
+    // initialHid is captured once; the effect runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function checkHid() {
     if (!hid.trim()) { setErr("Household ID is required"); return; }
@@ -83,8 +103,10 @@ export default function LoginPage() {
               onKeyDown={(e) => { if (e.key === "Enter") checkHid(); }}
             />
             <p className="muted">
-              The same string your FeedMe device shows on its
-              "Switch&nbsp;Wi-Fi" screen.
+              The string you typed into the captive-portal form when
+              you first set up the device (e.g.&nbsp;<code>home-andrey</code>).
+              Lost it? Ask whoever did the install — it's not shown
+              anywhere on the device.
             </p>
             <button disabled={busy} onClick={checkHid} style={{ marginTop: 16 }}>
               {busy ? "..." : "Continue"}

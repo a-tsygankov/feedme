@@ -150,6 +150,8 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&usersListView_);
     screens_.registerView(&userRemoveView_);
     screens_.registerView(&setupView_);
+    screens_.registerView(&pairingView_);
+    screens_.registerView(&resetPairConfirmView_);
 #if defined(FEEDME_HAS_HOPPER)
     screens_.registerView(&hopperView_);
 #endif

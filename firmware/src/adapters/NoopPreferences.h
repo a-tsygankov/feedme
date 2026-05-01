@@ -181,6 +181,10 @@ public:
     bool getHid     (char*, int) override { return false; }
     void setHid     (const char*) override {}
     void clearWifiCreds() override {}
+    bool getPaired(bool d) override { return pairedHasValue_ ? paired_ : d; }
+    void setPaired(bool v) override { paired_ = v; pairedHasValue_ = true; }
+    int  getHidResetCount(int d) override { return hidResetHasValue_ ? hidReset_ : d; }
+    void setHidResetCount(int v) override { hidReset_ = v; hidResetHasValue_ = true; }
 
 private:
     int64_t threshold_     = 0;
@@ -227,6 +231,10 @@ private:
     bool     sleepHasValue_    = false;
     int      lastFeederIdx_    = 0;
     bool     lastFeederHasValue_ = false;
+    bool     paired_           = false;
+    bool     pairedHasValue_   = false;
+    int      hidReset_         = 0;
+    bool     hidResetHasValue_ = false;
 };
 
 }  // namespace feedme::adapters

@@ -137,6 +137,23 @@ public:
     // Drops Wi-Fi creds + hid in one shot — used by Wi-Fi reset to
     // force the next boot into captive-portal setup mode.
     virtual void clearWifiCreds() = 0;
+
+    // "Has the user dismissed the pairing screen on this device?"
+    // PairingView shows the QR / hid every boot until the user taps to
+    // dismiss it; that tap calls setPaired(true). Wi-Fi reset / factory
+    // reset wipes the flag, so the pairing screen returns the next time.
+    virtual bool getPaired(bool defaultValue) = 0;
+    virtual void setPaired(bool value) = 0;
+
+    // Pairing-reset counter — appended to the auto-generated hid so
+    // each "Reset pairing" cycle produces a NEW household identifier
+    // (rather than re-using the MAC-derived one, which would collide
+    // with the orphaned backend household row from before the reset).
+    // Initial value 0 → hid = "feedme-{mac6}". Counter ≥ 1 →
+    // "feedme-{mac6}-{n}". main.cpp regenerates and persists the hid
+    // whenever NVS hid is empty (first boot / after reset).
+    virtual int  getHidResetCount(int defaultValue) = 0;
+    virtual void setHidResetCount(int value) = 0;
 };
 
 }  // namespace feedme::ports

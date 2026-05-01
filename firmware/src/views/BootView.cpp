@@ -68,8 +68,9 @@ void BootView::render(const feedme::ports::DisplayFrame&) {
 }
 
 const char* BootView::nextView() {
-    if (millis() - enteredMs_ >= BOOT_DURATION_MS) return "idle";
-    return nullptr;
+    if (millis() - enteredMs_ < BOOT_DURATION_MS) return nullptr;
+    if (nextOverride_ && nextOverride_[0]) return nextOverride_;
+    return "idle";
 }
 
 }  // namespace feedme::views

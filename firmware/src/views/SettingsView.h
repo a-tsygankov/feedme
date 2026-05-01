@@ -29,7 +29,7 @@ namespace feedme::views {
 // without the editors.
 class SettingsView : public IView {
 public:
-    static constexpr int ITEM_COUNT = 8;  // Wi-Fi, Wake, Quiet, Threshold, Cats, Users, Timezone, Sleep
+    static constexpr int ITEM_COUNT = 9;  // Wi-Fi, Wake, Notify, Threshold, Cats, Users, Timezone, Sleep, Pair
 
     void setNetwork(const feedme::ports::INetwork* network) { network_ = network; }
     void setQuiet  (const feedme::domain::QuietWindow* quiet) { quiet_ = quiet; }

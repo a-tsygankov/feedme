@@ -233,6 +233,30 @@ export default {
       return null;
     };
 
+    // DELETE /api/auth/household — "Forget this household". Wipes the
+    // households row + every per-household record (cats, users) the
+    // signed-in user owns. Events stay (they're keyed by hid; orphaned
+    // rows are harmless and let firmware backfills survive). After
+    // success the webapp clears its localStorage token + drops back
+    // to /login. Re-pairing the same hid (or a fresh one from a
+    // device-side reset) is then a clean "Set a PIN" flow.
+    //
+    // Auth required so a random POSTer can't nuke someone else's
+    // household. The token's hid is the authority — we ignore any
+    // body/path hid.
+    if (url.pathname === "/api/auth/household" && req.method === "DELETE") {
+      const denied = requireAuth(); if (denied) return denied;
+      const hid = authed!.hid;
+      // Run the deletes inline; no foreign keys means order doesn't
+      // matter. D1 doesn't support multi-statement transactions in
+      // free-tier so we do them as separate prepares.
+      await env.DB.prepare("DELETE FROM cats        WHERE hid = ?").bind(hid).run();
+      await env.DB.prepare("DELETE FROM users       WHERE hid = ?").bind(hid).run();
+      await env.DB.prepare("DELETE FROM households  WHERE hid = ?").bind(hid).run();
+      console.log(`[auth] forgot household '${hid}'`);
+      return json({ ok: true, hid });
+    }
+
     // GET /api/cats — list active cats for the authed household.
     if (url.pathname === "/api/cats" && req.method === "GET") {
       const denied = requireAuth(); if (denied) return denied;

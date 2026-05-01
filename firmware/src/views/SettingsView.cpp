@@ -47,6 +47,7 @@ const ItemSpec kItems[SettingsView::ITEM_COUNT] = {
     { "Users",     "U"            },   // placeholder for IcUser
     { "Timezone",  "Z"            },   // placeholder for IcGlobe
     { "Sleep",     LV_SYMBOL_POWER }, // power-symbol stand-in for sleep timeout
+    { "Pair",      "Q"            },  // re-show pairing QR; long-press there resets
 };
 
 }  // namespace
@@ -286,6 +287,12 @@ void SettingsView::redraw() {
                 }
                 break;
             }
+            case 8: {
+                // Pair → opens the pairing QR. No persistent value;
+                // the action is the destination itself.
+                lv_label_set_text(rowValues_[i], "");
+                break;
+            }
         }
     }
 
@@ -347,6 +354,8 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return "timezoneEdit";
                 case 7:  // Sleep timeout editor — wired
                     return "sleepTimeoutEdit";
+                case 8:  // Pair: re-show QR. Long-press there resets.
+                    return "pairing";
             }
             return nullptr;
         // Long-press / long-touch → ScreenManager fallback to parent().

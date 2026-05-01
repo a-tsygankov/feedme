@@ -76,6 +76,10 @@ public:
     bool getHid     (char* buf, int bufLen) override;
     void setHid     (const char* value) override;
     void clearWifiCreds() override;
+    bool getPaired(bool defaultValue) override;
+    void setPaired(bool value) override;
+    int  getHidResetCount(int defaultValue) override;
+    void setHidResetCount(int value) override;
 
 private:
     ::Preferences prefs_;
@@ -103,6 +107,8 @@ private:
     static constexpr const char* KEY_WIFI_SSID        = "wSsid";
     static constexpr const char* KEY_WIFI_PASS        = "wPass";
     static constexpr const char* KEY_HID              = "hid";
+    static constexpr const char* KEY_PAIRED           = "paired";
+    static constexpr const char* KEY_HID_RESET_COUNT  = "hidRstN";
 };
 
 }  // namespace feedme::adapters

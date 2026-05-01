@@ -88,6 +88,11 @@ export const api = {
     apiRaw<{ token: string; hid: string }>("/api/auth/setup", { method: "POST", body: { hid, pin } }),
   login: (hid: string, pin: string) =>
     apiRaw<{ token: string; hid: string }>("/api/auth/login", { method: "POST", body: { hid, pin } }),
+  // Wipes the household + all per-household records (cats, users) for
+  // the currently authenticated session. Caller is responsible for
+  // clearing localStorage + redirecting to /login afterwards.
+  forgetHousehold: () =>
+    apiRaw<{ ok: true; hid: string }>("/api/auth/household", { method: "DELETE" }),
 
   // Cats CRUD.
   catsList:   ()                                          => apiRaw<{ cats:  Cat[]  }>("/api/cats"),
