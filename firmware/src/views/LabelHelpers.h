@@ -5,6 +5,7 @@
 #include <lvgl.h>
 
 #include <stdio.h>
+#include <string.h>
 
 namespace feedme::views {
 
@@ -60,11 +61,22 @@ constexpr const char* kScrollingGap = "    ";
 //
 // Buffer is sized for typical kicker / footer payloads (≤96 chars
 // after the gap). Longer inputs are silently truncated by snprintf.
+//
+// IMPORTANT: dedups against the label's current text and skips the
+// set_text call when nothing changed. Without this, a caller that
+// re-fires every render frame (e.g. FeedConfirm::redraw) keeps
+// reallocating the label buffer + invoking lv_label_refr_text, which
+// resets LV_LABEL_LONG_SCROLL_CIRCULAR's animation back to position
+// zero on every tick → label visibly never scrolls. Callers with
+// their own change-detection still work — strcmp on a short hint
+// string is essentially free.
 inline void setScrollingText(lv_obj_t* lbl, const char* text) {
     if (!lbl) return;
     if (!text) text = "";
     char buf[128];
     snprintf(buf, sizeof(buf), "%s%s", text, kScrollingGap);
+    const char* current = lv_label_get_text(lbl);
+    if (current && strcmp(current, buf) == 0) return;
     lv_label_set_text(lbl, buf);
 }
 
