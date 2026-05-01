@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a1226" />
+    <title>FeedMe</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg:        #1a1226;
+        --screen-bg: #221636;
+        --ink:       #f6f1e6;
+        --dim:       #9c97a4;
+        --faint:     #4f485c;
+        --accent:    #ffb3c1;
+        --line:      #2e2440;
+      }
+      html, body, #root { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
