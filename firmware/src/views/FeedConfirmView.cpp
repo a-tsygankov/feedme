@@ -225,14 +225,39 @@ const char* FeedConfirmView::handleInput(feedme::ports::TapEvent ev) {
             }
             return nullptr;
         case E::Press: {
-            // Adaptive: N≥2 users → ask who's feeding before logging.
+            // FEED_ALL fast path: skip the picker, use lastFeederIdx
+            // (which currentFeederName resolves to in the absence of
+            // an explicit picker selection). The user already picked
+            // a feeder once — don't ask again on the "feed everyone"
+            // shortcut. Single-cat or specific-cat selection still
+            // routes through the picker for multi-user homes so the
+            // user can change attribution per-cat if they want.
+            const int sel = roster_->feedSelection();
+            const bool feedAll = (sel == feedme::domain::CatRoster::FEED_ALL);
             const int uc = users_ ? users_->count() : -1;
+            if (feedAll) {
+                Serial.printf("[feedConfirm] Press FEED_ALL users=%d → pouring (last user)\n", uc);
+                return "pouring";
+            }
             Serial.printf("[feedConfirm] Press users=%d → %s\n",
                           uc, (uc >= 2) ? "feederPick" : "pouring");
-            if (users_ && users_->count() >= 2) return "feederPick";
+            if (uc >= 2) return "feederPick";
             return "pouring";
         }
-        case E::Tap:       return "portionAdjust";
+        case E::Tap: {
+            // FEED_ALL + Tap → user selection (the only useful adjust;
+            // there's no per-cat portion to edit in ALL mode since the
+            // arc shows the SUM). N=1 user: no picker, no portion to
+            // edit — stay put (return null).
+            // Specific cat + Tap → portion adjuster (unchanged).
+            const int sel = roster_->feedSelection();
+            const bool feedAll = (sel == feedme::domain::CatRoster::FEED_ALL);
+            if (feedAll) {
+                if (users_ && users_->count() >= 2) return "feederPick";
+                return nullptr;
+            }
+            return "portionAdjust";
+        }
         // Long-press / long-touch → ScreenManager fallback to parent().
         default:           return nullptr;
     }

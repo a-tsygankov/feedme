@@ -57,6 +57,9 @@ public:
     int  getSleepTimeoutMin(int defaultValue) override;
     void setSleepTimeoutMin(int value) override;
 
+    int  getLastFeederIdx(int defaultValue) override;
+    void setLastFeederIdx(int value) override;
+
     int  getUserCount(int defaultValue) override;
     void setUserCount(int value) override;
     int  getUserId   (int slot, int defaultValue) override;
@@ -95,6 +98,7 @@ private:
     static constexpr const char* KEY_TZ_OFFSET_MIN    = "tzMin";
     static constexpr const char* KEY_ACTIVE_CAT_IDX   = "actCat";
     static constexpr const char* KEY_SLEEP_TIMEOUT    = "sleepM";
+    static constexpr const char* KEY_LAST_FEEDER_IDX  = "lastFdr";
     // Wi-Fi creds + household id — Phase 2.4 captive portal.
     static constexpr const char* KEY_WIFI_SSID        = "wSsid";
     static constexpr const char* KEY_WIFI_PASS        = "wPass";
