@@ -32,6 +32,21 @@ npm run db:apply:remote -- --file=./migrations/0002_webapp_tables.sql
   `users` for the web-app PIN auth + management surface
   (PR #19). All `CREATE TABLE IF NOT EXISTS` so safely re-runnable.
 
+- **`0003_household_name.sql`** — adds `households.name` (friendly
+  display label like "Smith Family"). `ALTER TABLE ADD COLUMN`,
+  errors with "duplicate column name" if already applied — safe to
+  ignore, the deploy script catches and continues. **Note:** after
+  migration 0004 `households.hid` IS the home name; the `name`
+  column is unused by current code (kept around so we don't have to
+  drop a column).
+
+- **`0004_devices.sql`** — splits device identity (firmware's
+  `feedme-{mac6}` hid) from home identity (user-chosen name in
+  `households.hid`). Adds a `devices(device_id PK, home_hid)` map
+  and seeds it from existing households so legacy single-device homes
+  keep working without any code changes on the firmware side. All
+  `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`, fully re-runnable.
+
 ## What about `schema.sql`?
 
 `schema.sql` is the **canonical full schema** — what a brand-new

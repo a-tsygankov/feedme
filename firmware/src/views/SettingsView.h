@@ -1,10 +1,8 @@
 #pragma once
 
-#include "domain/CatRoster.h"
 #include "domain/QuietWindow.h"
 #include "domain/SleepTimeout.h"
 #include "domain/TimeZone.h"
-#include "domain/UserRoster.h"
 #include "domain/WakeTime.h"
 #include "ports/INetwork.h"
 #include "views/IView.h"
@@ -29,13 +27,12 @@ namespace feedme::views {
 // without the editors.
 class SettingsView : public IView {
 public:
-    static constexpr int ITEM_COUNT = 9;  // Wi-Fi, Wake, Notify, Threshold, Cats, Users, Timezone, Sleep, Pair
+    static constexpr int ITEM_COUNT = 6;  // Wi-Fi, Wake, Notify, Threshold, Timezone, Sleep
+                                          // (Cats / Users / Pair / Reset moved to HomeView)
 
     void setNetwork(const feedme::ports::INetwork* network) { network_ = network; }
     void setQuiet  (const feedme::domain::QuietWindow* quiet) { quiet_ = quiet; }
     void setWake   (const feedme::domain::WakeTime* wake) { wake_ = wake; }
-    void setRoster     (const feedme::domain::CatRoster* roster) { roster_ = roster; }
-    void setUserRoster (const feedme::domain::UserRoster* roster) { userRoster_ = roster; }
     void setTimeZone   (const feedme::domain::TimeZone* tz) { tz_ = tz; }
     void setSleepTimeout(const feedme::domain::SleepTimeout* s) { sleep_ = s; }
     void setCoordinator(const feedme::application::DisplayCoordinator* c) { coord_ = c; }
@@ -54,8 +51,6 @@ private:
     const feedme::ports::INetwork*                   network_ = nullptr;
     const feedme::domain::QuietWindow*               quiet_   = nullptr;
     const feedme::domain::WakeTime*                  wake_    = nullptr;
-    const feedme::domain::CatRoster*                 roster_     = nullptr;
-    const feedme::domain::UserRoster*                userRoster_ = nullptr;
     const feedme::domain::TimeZone*                  tz_         = nullptr;
     const feedme::domain::SleepTimeout*              sleep_      = nullptr;
     const feedme::application::DisplayCoordinator*   coord_      = nullptr;
@@ -75,8 +70,6 @@ private:
     int  lastDrawnWakeHour_   = -1;
     int  lastDrawnWakeMinute_ = -1;
     long lastDrawnThresholdSec_ = -1;
-    int  lastDrawnCatCount_     = -1;
-    int  lastDrawnUserCount_    = -1;
     int  lastDrawnTzMin_        = -99999;
     int  lastDrawnSleepMin_     = -99999;
     bool firstRender_         = true;

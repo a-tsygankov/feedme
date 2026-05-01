@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, type Cat, api, auth } from "../lib/api";
 import { CAT_PALETTE, resolveCatColor, toCssHex } from "../lib/palette";
 
-// Cats page. Shows the household's cats with rename + recolor edit;
+// Cats page. Shows the home's cats with rename + recolor edit;
 // also lets the user add (lowest free slot) and remove (soft delete,
 // refused for the last cat). Mirrors the firmware CatsList +
 // CatEditView UX so the two sides feel consistent.

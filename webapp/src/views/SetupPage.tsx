@@ -2,75 +2,100 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, auth } from "../lib/api";
 
-// Device-pairing landing page. Reached by scanning the QR code shown
-// on the FeedMe device's pairing screen — the QR encodes:
+// /setup landing page. Reached by scanning the QR on the FeedMe
+// device's pairing screen — the QR encodes:
 //
-//   https://feedme-webapp.pages.dev/setup?hid=feedme-abcdef
+//   https://feedme-webapp.pages.dev/setup?device=feedme-{mac6}
 //
-// Three terminal states based on whether the hid is already known to
-// the backend:
+// (Earlier versions used `?hid=…`; we still accept it for backwards
+// compatibility with already-flashed firmware that hard-codes the
+// query parameter name. Internally, this is the *device id*, not
+// the home id — those are separate post-migration-0004.)
 //
-//   missing   — query param absent or empty. Probably someone typed
-//               the URL by hand. Show a friendly explainer + link to
-//               regular /login.
+// What the user does here:
+//   1. Picks a UNIQUE home NAME (e.g. "Smith Family"). That name
+//      becomes the home's identifier — login later requires typing
+//      this exact string.
+//   2. Sets a PIN.
+//   3. Hits "Create home".
 //
-//   new       — household doesn't exist yet. Show a PIN setup form;
-//               on submit calls /api/auth/setup which atomically
-//               creates the household and returns a session token.
+// Backend behaviour:
+//   - Validates the name (1-64 chars, no control chars)
+//   - 409 if the name is taken → we redirect to /login with the
+//     name + device prefilled so the user just enters the PIN.
+//   - On success: returns a session token bound to the home name
+//     AND atomically claims the device into that home (devices table).
 //
-//   exists    — household already has a PIN. The user either re-scanned
-//               the QR after first pairing, or someone else paired
-//               this device. Offer to sign in (carrying the hid
-//               through to /login as a query string).
+// Escape hatch: "Already have a home? Log in" navigates to /login
+// preserving the device query param so the device gets claimed into
+// the existing home after sign-in.
 //
-// All three states are entered from the initial "checking" state which
-// fires the /api/auth/exists probe.
-type Phase = "checking" | "new" | "exists" | "missing" | "error";
+// Token-aware: if a valid stored token already matches a home that
+// owns this device, we silently navigate("/") — re-scans don't
+// re-prompt for anything.
+type Phase = "checking" | "form" | "missing" | "error";
 
 export default function SetupPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const hid = (params.get("hid") ?? "").trim();
 
-  const [phase, setPhase] = useState<Phase>(hid ? "checking" : "missing");
+  // Accept either ?device= or legacy ?hid=. Trim and lowercase
+  // anything we got — the firmware always emits lowercase hex.
+  const deviceId = (params.get("device") ?? params.get("hid") ?? "").trim();
+
+  const [phase, setPhase] = useState<Phase>(deviceId ? "checking" : "missing");
+  const [name, setName]   = useState("");
   const [pin, setPin]     = useState("");
   const [pin2, setPin2]   = useState("");
   const [busy, setBusy]   = useState(false);
   const [err,  setErr]    = useState<string | null>(null);
 
-  // Probe the backend once on mount when we have an hid in the URL.
+  // Mount: if user already has a valid token, skip the page entirely.
   useEffect(() => {
-    if (!hid) return;
-    setPhase("checking");
-    api
-      .exists(hid)
-      .then(({ exists }) => setPhase(exists ? "exists" : "new"))
-      .catch((e) => {
-        setPhase("error");
-        setErr(e instanceof Error ? e.message : "network error");
-      });
-  }, [hid]);
+    if (!deviceId) return;
+    const payload = auth.validPayload();
+    if (payload) {
+      // Already signed in to *some* home. Send them home; the
+      // device claim status is independent. If they want to claim
+      // this device into a different home, they'll sign out first.
+      navigate("/", { replace: true });
+      return;
+    }
+    setPhase("form");
+  }, [deviceId, navigate]);
 
-  async function submitSetup() {
-    if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
-    if (pin !== pin2)   { setErr("PINs don't match"); return; }
-    setBusy(true); setErr(null);
+  async function submitCreate() {
+    setErr(null);
+    if (name.trim().length < 1) { setErr("Pick a home name"); return; }
+    if (name.trim().length > 64) { setErr("Home name too long (max 64)"); return; }
+    if (pin.length < 4)   { setErr("PIN must be at least 4 digits"); return; }
+    if (pin !== pin2)     { setErr("PINs don't match"); return; }
+    setBusy(true);
     try {
-      const { token } = await api.setup(hid, pin);
+      const { token, hid } = await api.setup(name.trim(), pin, deviceId);
       auth.set(token, hid);
       navigate("/", { replace: true });
     } catch (e) {
-      // 409 — race with another tab that paired in between. Refresh
-      // the phase so the UI offers sign-in instead.
       if (e instanceof ApiError && e.status === 409) {
-        setPhase("exists");
-        setErr(null);
-      } else {
-        setErr(e instanceof Error ? e.message : "setup failed");
+        // Name taken — bounce to login with name + device prefilled
+        // so the next click just types the PIN.
+        const url = `/login?hid=${encodeURIComponent(name.trim())}` +
+                    (deviceId ? `&device=${encodeURIComponent(deviceId)}` : "");
+        navigate(url, { replace: true });
+        return;
       }
+      // Surface the real server message so deploy/migration mismatches
+      // (the most common failure right now) are visible instead of
+      // landing the user in a confusing loop.
+      setErr(e instanceof Error ? e.message : "create failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  function goLogin() {
+    const url = "/login" + (deviceId ? `?device=${encodeURIComponent(deviceId)}` : "");
+    navigate(url, { replace: true });
   }
 
   return (
@@ -81,67 +106,54 @@ export default function SetupPage() {
           <>
             <h2>Pair a device</h2>
             <p className="muted">
-              This page is the landing target for the QR code on your
-              FeedMe device's pairing screen. Scan it with your phone
-              and you'll come back here with the household ID
-              auto-filled.
-            </p>
-            <p className="muted">
-              Already paired? Open the regular sign-in page.
+              This page is the QR-scan landing target. Open the device's
+              pairing screen and scan its QR — you'll come back here
+              with the device ID auto-filled.
             </p>
             <button onClick={() => navigate("/login")} style={{ marginTop: 16 }}>
-              Go to sign in
+              Or log in with a home name
             </button>
           </>
         )}
 
         {phase === "checking" && (
           <>
-            <h2>Pairing {hid}…</h2>
-            <p className="muted">Checking with the server.</p>
+            <h2>Pairing…</h2>
+            <p className="muted">Checking session.</p>
           </>
         )}
 
         {phase === "error" && (
           <>
-            <h2>Couldn't reach the server</h2>
+            <h2>Something went wrong</h2>
             <p className="muted">{err ?? "Try again in a moment."}</p>
-            <button onClick={() => setPhase("checking")} style={{ marginTop: 16 }}>
+            <button onClick={() => setPhase("form")} style={{ marginTop: 16 }}>
               Retry
             </button>
           </>
         )}
 
-        {phase === "exists" && (
+        {phase === "form" && (
           <>
-            <h2>Already paired</h2>
+            <h2>Create a new home</h2>
             <p className="muted">
-              <code>{hid}</code> already has a PIN. Sign in to manage it
-              — or, if you've forgotten the PIN, reset pairing on the
-              device (long-press the QR screen) to start over with a
-              fresh ID.
+              Pairing device <code>{deviceId}</code>. Pick a unique
+              name for your home — that name IS your home's ID and
+              you'll type it (along with your PIN) to sign in later.
             </p>
-            <button
-              onClick={() =>
-                navigate(`/login?hid=${encodeURIComponent(hid)}`, { replace: true })
-              }
-              style={{ marginTop: 16 }}
-            >
-              Continue to sign in
-            </button>
-          </>
-        )}
-
-        {phase === "new" && (
-          <>
-            <h2>Set a PIN for {hid}</h2>
-            <p className="muted">
-              Anyone in your home will use this PIN to open the app on
-              their phone. 4+ digits.
-            </p>
-            <label>PIN</label>
+            <label>Home name</label>
             <input
               autoFocus
+              type="text"
+              maxLength={64}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Smith Family"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <label>PIN (4+ digits)</label>
+            <input
               type="password"
               inputMode="numeric"
               pattern="[0-9]*"
@@ -157,15 +169,33 @@ export default function SetupPage() {
               autoComplete="new-password"
               value={pin2}
               onChange={(e) => setPin2(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitSetup(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") submitCreate(); }}
             />
-            <button disabled={busy} onClick={submitSetup} style={{ marginTop: 16 }}>
-              {busy ? "..." : "Pair this device"}
+            <button disabled={busy} onClick={submitCreate} style={{ marginTop: 16 }}>
+              {busy ? "..." : "Create home"}
             </button>
+
+            <div style={{
+              marginTop: 24, paddingTop: 16,
+              borderTop: "1px solid var(--theme-line, #2e2440)",
+            }}>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Already have a home on another device? Sign in with
+                its name + PIN — this device will join that home so
+                its events show up there too.
+              </p>
+              <button
+                className="secondary"
+                onClick={goLogin}
+                style={{ width: "100%" }}
+              >
+                Log in to an existing home
+              </button>
+            </div>
           </>
         )}
 
-        {err && phase !== "error" && <p className="error">{err}</p>}
+        {err && phase === "form" && <p className="error">{err}</p>}
       </div>
     </>
   );

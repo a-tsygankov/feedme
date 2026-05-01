@@ -99,7 +99,7 @@ npm run deploy
 
 ## Pairing flow
 
-The device auto-generates its household identifier on first boot —
+The device auto-generates its home identifier on first boot —
 `feedme-{12-hex-mac}` (e.g. `feedme-a8b3c1d4e5f6`). It then displays
 that ID + a QR code on a one-time pairing screen. The QR encodes:
 
@@ -110,22 +110,32 @@ https://feedme-webapp.pages.dev/setup?hid=feedme-a8b3c1d4e5f6
 Scanning the QR with any phone lands on `/setup`, which probes
 `/api/auth/exists` and either:
 
-- `new` → shows a "Set a PIN" form. On submit creates the household
-  and signs the user in — pairing complete.
+- `new` → shows a "Set a PIN" form. On submit creates the home and
+  signs the user in — pairing complete.
 - `exists` → offers "Continue to sign in" with the hid pre-filled
-  (probably someone re-scanned the QR after the household was paired).
+  (someone re-scanned the QR after the home was already paired).
 
 **Lost the PIN / starting over?** Long-press the QR screen on the
-device. A confirm screen pops up; one tap rotates the hid (counter
-appended: `feedme-a8b3c1d4e5f6-1`), wipes the NVS paired flag, and
-reboots. The new QR points at a fresh, unclaimed household ID. The
-old backend household record is orphaned — clean it up manually with
-the "Forget this household" button under Settings (or via wrangler).
+device, or use Home → Reset on the device's main UI. A confirm screen
+pops up; one tap rotates the hid (counter appended:
+`feedme-a8b3c1d4e5f6-1`), wipes the NVS paired flag, and reboots. The
+new QR points at a fresh, unclaimed home ID. The old backend record
+is orphaned — clean it up via the "Forget this home" button in the
+web app (or by hand with wrangler).
 
-**Forget remotely?** Settings → Forget this household calls
-`DELETE /api/auth/household`, which wipes the household + cats + users
-rows for the signed-in hid. Feed history stays (orphaned, harmless).
-After deletion the user is signed out and bounced to `/login`.
+**Forget remotely?** Settings → Forget this home calls
+`DELETE /api/auth/household` (legacy URL — the API path still uses
+the "household" name), which wipes the home + cats + users rows for
+the signed-in hid. Feed history stays (orphaned, harmless). After
+deletion the user is signed out and bounced to `/login`.
+
+### Why "home" in the UI but `hid` / `household` in the code?
+
+User-facing terminology is **Home** (shorter, less awkward in product
+copy). Wire identifiers stay `hid` and the existing route segment
+stays `/api/auth/household` so we don't break the device firmware or
+require a backend rename + redeploy step. New backend code may use
+either name interchangeably.
 
 ## Coming soon
 

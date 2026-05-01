@@ -1,0 +1,21 @@
+-- Migration 0003 — add `name` column to households (the friendly
+-- display label for a home, e.g. "Smith Family"). Distinct from
+-- `hid` which is the opaque device-generated identifier (e.g.
+-- feedme-a8b3c1d4e5f6) used as the primary key + URL slug.
+--
+-- Why a column and not a separate table: every household has exactly
+-- one name; nothing else relates to it. The 1:1 fits cleanly in the
+-- existing row.
+--
+-- Default '' (not NULL) so SELECT name FROM households is always
+-- safe — the webapp falls back to displaying hid when the name is
+-- blank, which is the case for households that were created before
+-- this migration and for the firmware's setup-time POST that hasn't
+-- learned to send a name yet.
+--
+-- Already-applied error pattern: SQLite's ALTER TABLE ADD COLUMN
+-- doesn't support IF NOT EXISTS. Re-running this migration on a DB
+-- where the column exists gives `duplicate column name: name` —
+-- harmless, the deploy script catches and continues.
+
+ALTER TABLE households ADD COLUMN name TEXT NOT NULL DEFAULT '';

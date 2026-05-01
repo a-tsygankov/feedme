@@ -1,0 +1,171 @@
+name: Deploy
+
+# Auto-deploys backend (D1 migrations + Worker) and webapp (Pages) on
+# every push to main. Path filters keep PRs and unrelated commits cheap:
+# the backend job only runs when backend/** changed, same for webapp.
+#
+# Firmware is *not* deployed from CI — it requires a USB-connected
+# device. Use `./scripts/deploy.sh --firmware` from a workstation.
+#
+# ── Required secrets (Repo Settings → Secrets and variables → Actions) ──
+#
+#   CLOUDFLARE_API_TOKEN
+#     A Cloudflare API token with these permissions:
+#       Account → Workers Scripts → Edit
+#       Account → Workers KV Storage → Edit         (for migrations runtime)
+#       Account → Cloudflare Pages → Edit
+#       Account → D1 → Edit
+#     Generate at: https://dash.cloudflare.com/profile/api-tokens
+#     Use the "Edit Cloudflare Workers" template + add D1 + Pages.
+#
+#   CLOUDFLARE_ACCOUNT_ID
+#     Find at: https://dash.cloudflare.com/ → right sidebar of any
+#     Workers/Pages page (32-char hex).
+#
+# Cron-safe: re-running the workflow on the same commit is a no-op for
+# the Worker (wrangler deploy is idempotent) and overwrites the Pages
+# deployment with the same artifact. Migrations are idempotent where
+# possible; ALTER TABLE ADD COLUMN errors on already-applied steps are
+# tolerated by `continue-on-error: true` on that one step.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:    # manual trigger from the Actions tab
+
+# Cancel an in-flight deploy when a newer commit lands. Avoids two
+# wrangler deploys racing for the same Worker. Per-job concurrency
+# group keeps backend and webapp independent.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Detect which subtrees changed so unrelated paths skip cleanly ──
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      webapp:  ${{ steps.filter.outputs.webapp }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            webapp:
+              - 'webapp/**'
+
+  # ── Backend: D1 migrations + Worker ────────────────────────────────
+  backend:
+    name: Backend deploy
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      # Apply migrations in numeric order. ALTER TABLE ADD COLUMN
+      # errors on databases where the column already exists are
+      # expected; tolerated via continue-on-error so we don't block
+      # the Worker deploy on a benign duplicate.
+      - name: Apply D1 migrations
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for f in migrations/*.sql; do
+            echo "::group::Applying $(basename "$f")"
+            npx wrangler d1 execute feedme --remote --file="$f" || \
+              echo "::warning::$(basename "$f") errored — likely already applied"
+            echo "::endgroup::"
+          done
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:   ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          # `npm run deploy` runs `wrangler deploy`; using the action
+          # directly here for cleaner secret handling and OIDC support.
+          command: deploy
+
+  # ── Webapp: build + Pages deploy ──────────────────────────────────
+  webapp:
+    name: Webapp deploy
+    needs: changes
+    if: needs.changes.outputs.webapp == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: webapp/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:   ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: webapp
+          # Deploy from webapp/ so the functions/ folder (the /api/*
+          # → Worker proxy) is picked up alongside the static dist/.
+          command: pages deploy dist --project-name=feedme-webapp --branch=main
+
+  # ── Firmware sanity build (no flashing — just verify the binary) ──
+  # Optional but useful: catches regressions that would otherwise only
+  # surface on the workstation. Not gated on path so any change to
+  # shared headers (lv_conf.h etc.) is exercised. Comment out if
+  # build minutes become a concern.
+  firmware-build:
+    name: Firmware build (sanity)
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.modified, 'firmware/')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            firmware/.pio
+          key: ${{ runner.os }}-pio-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+      - name: Build (real-board target)
+        run: pio run -e esp32-s3-lcd-1_28
+      - name: Build (simulator target)
+        run: pio run -e simulator

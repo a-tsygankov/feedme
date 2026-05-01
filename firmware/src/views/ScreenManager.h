@@ -16,7 +16,14 @@ namespace feedme::views {
 // pointer to a stack/static instance owned by LvglDisplay.
 class ScreenManager {
 public:
-    static constexpr int MAX_VIEWS = 24;  // 21 today w/ HOPPER flag — headroom
+    // 29 today: 25 base + Setup + Pair + ResetPairConfirm + Home.
+    // Bump generously — the array is just pointers (32 * 4 B on a 32-bit
+    // target), and silent overflow here puts the device in a boot-loop:
+    // the Settings → "destination view" lookup fails, the dispatcher
+    // can't transition, and the screen freezes on whatever the previous
+    // view rendered (most visibly: BootView trying to land on PairingView
+    // and being stuck forever).
+    static constexpr int MAX_VIEWS = 32;
 
     // Drop input events that arrive within this window after a screen
     // transition. Catches the case where a single press (or a quick

@@ -37,3 +37,29 @@
 - Firmware: `cd firmware && pio run -e esp32-s3-lcd-1_28 -t upload`
 
 After flashing a clean device (or one whose NVS you've wiped via `nvs_erase`), the new flow runs end-to-end: captive portal → reboot → boot splash → **pairing screen with QR** → scan with phone → set PIN → home.
+
+
+## Local deploy script
+Two flavors — pick whichever shell you prefer:
+
+Bash (Git Bash, WSL, macOS, Linux): scripts/deploy.sh
+```
+./scripts/deploy.sh                # backend + webapp (default)
+./scripts/deploy.sh --firmware     # all three
+./scripts/deploy.sh --backend-only
+./scripts/deploy.sh --webapp-only
+./scripts/deploy.sh --firmware-only
+./scripts/deploy.sh --skip-migrations
+```
+
+PowerShell (native Windows): scripts/deploy.ps1
+
+```
+.\scripts\deploy.ps1                  # backend + webapp
+.\scripts\deploy.ps1 -Firmware        # all three
+.\scripts\deploy.ps1 -BackendOnly
+.\scripts\deploy.ps1 -WebappOnly
+.\scripts\deploy.ps1 -FirmwareOnly
+.\scripts\deploy.ps1 -SkipMigrations
+```
+What each step does:

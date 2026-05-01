@@ -2,178 +2,146 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, auth } from "../lib/api";
 
-// PIN-based household login. Two-step:
-//   1. Enter the household ID (matches what the device captured at
-//      first-time setup — e.g. "home-andrey"). We probe the backend
-//      to see if this household already exists.
-//   2a. exists → "Enter PIN" → /api/auth/login.
-//   2b. doesn't → "Set a PIN" → /api/auth/setup (creates household,
-//                returns a session token in the same call).
+// /login — sign in to an EXISTING home with its name + PIN. The home
+// name IS the unique identifier (post-migration-0004); there is no
+// separate hid to remember.
 //
-// Token + hid are stored in localStorage; subsequent API calls send
-// Authorization: Bearer <token>.
+// Optional ?hid=…&device=… query params pre-fill the form and trigger
+// a device claim on success. Two ways to land here:
+//
+//   1. From SetupPage's "Log in to an existing home" button (or its
+//      409 redirect when the chosen name is taken). Both pass through
+//      the device id so the device gets claimed into the home.
+//
+//   2. By typing /login directly (no params) — generic sign-in.
+//
+// Skip-if-already-signed-in: if a valid token is in localStorage,
+// silently navigate("/"). Re-opening the app shouldn't make the
+// user re-type credentials.
+//
+// Errors:
+//   - 404 "no such home" → suggest "create a new home" link
+//   - 401 "wrong PIN"   → inline error, retry
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const initialHid = (params.get("hid") ?? "").trim();
+  const initialHid    = (params.get("hid") ?? "").trim();
+  const initialDevice = (params.get("device") ?? "").trim();
+
   const [hid, setHid] = useState(initialHid);
   const [pin, setPin] = useState("");
-  const [pin2, setPin2] = useState("");
-  const [phase, setPhase] = useState<"hid" | "login" | "setup">("hid");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err,  setErr]  = useState<string | null>(null);
+  const [unknown, setUnknown] = useState(false);   // 404 path → show create CTA
 
-  // If we landed here with ?hid= already in the URL (e.g. via the
-  // SetupPage "this household is already paired → sign in" handoff),
-  // probe the backend automatically so the user lands directly on the
-  // PIN prompt instead of having to press Continue.
+  // If we already have a valid session, skip the page.
   useEffect(() => {
-    if (!initialHid) return;
-    let cancelled = false;
-    api.exists(initialHid)
-      .then(({ exists }) => {
-        if (cancelled) return;
-        setPhase(exists ? "login" : "setup");
-      })
-      .catch(() => { /* fall back to manual flow on error */ });
-    return () => { cancelled = true; };
-    // initialHid is captured once; the effect runs once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const payload = auth.validPayload();
+    if (payload) navigate("/", { replace: true });
+  }, [navigate]);
 
-  async function checkHid() {
-    if (!hid.trim()) { setErr("Household ID is required"); return; }
-    setBusy(true); setErr(null);
+  async function submit() {
+    setErr(null);
+    setUnknown(false);
+    if (!hid.trim())   { setErr("Type your home name");        return; }
+    if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
+    setBusy(true);
     try {
-      const { exists } = await api.exists(hid.trim());
-      setPhase(exists ? "login" : "setup");
+      const { token, hid: returnedHid } = await api.login(
+        hid.trim(),
+        pin,
+        initialDevice || undefined,
+      );
+      auth.set(token, returnedHid);
+      navigate("/", { replace: true });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "network error");
+      if (e instanceof ApiError) {
+        if (e.status === 404) { setUnknown(true); return; }
+        if (e.status === 401) { setErr("Wrong PIN"); return; }
+      }
+      setErr(e instanceof Error ? e.message : "login failed");
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitLogin() {
-    if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
-    setBusy(true); setErr(null);
-    try {
-      const { token } = await api.login(hid.trim(), pin);
-      auth.set(token, hid.trim());
-      navigate("/", { replace: true });
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setErr("Wrong PIN");
-      else setErr(e instanceof Error ? e.message : "login failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitSetup() {
-    if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
-    if (pin !== pin2)   { setErr("PINs don't match"); return; }
-    setBusy(true); setErr(null);
-    try {
-      const { token } = await api.setup(hid.trim(), pin);
-      auth.set(token, hid.trim());
-      navigate("/", { replace: true });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "setup failed");
-    } finally {
-      setBusy(false);
-    }
+  function goCreate() {
+    // Keep the device query so /setup can claim it on create.
+    const url = "/setup" + (initialDevice ? `?device=${encodeURIComponent(initialDevice)}` : "");
+    navigate(url, { replace: true });
   }
 
   return (
     <>
       <h1>FeedMe</h1>
       <div className="card">
-        {phase === "hid" && (
-          <>
-            <h2>Open your household</h2>
-            <label>Household ID</label>
-            <input
-              autoFocus
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="home-andrey"
-              value={hid}
-              onChange={(e) => setHid(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") checkHid(); }}
-            />
-            <p className="muted">
-              The string you typed into the captive-portal form when
-              you first set up the device (e.g.&nbsp;<code>home-andrey</code>).
-              Lost it? Ask whoever did the install — it's not shown
-              anywhere on the device.
-            </p>
-            <button disabled={busy} onClick={checkHid} style={{ marginTop: 16 }}>
-              {busy ? "..." : "Continue"}
-            </button>
-          </>
+        <h2>Sign in</h2>
+        {initialDevice && (
+          <p className="muted" style={{ marginTop: -4 }}>
+            Pairing device <code>{initialDevice}</code> into the home
+            you sign in to.
+          </p>
         )}
 
-        {phase === "login" && (
-          <>
-            <h2>Enter PIN for {hid}</h2>
-            <label>PIN</label>
-            <input
-              autoFocus
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              autoComplete="current-password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitLogin(); }}
-            />
-            <button disabled={busy} onClick={submitLogin} style={{ marginTop: 16 }}>
-              {busy ? "..." : "Sign in"}
-            </button>
-            <button className="secondary" onClick={() => { setPhase("hid"); setPin(""); setErr(null); }} style={{ marginTop: 8, width: "100%" }}>
-              Use a different household
-            </button>
-          </>
-        )}
+        <label>Home name</label>
+        <input
+          autoFocus={!initialHid}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="Smith Family"
+          value={hid}
+          onChange={(e) => setHid(e.target.value)}
+          maxLength={64}
+        />
 
-        {phase === "setup" && (
-          <>
-            <h2>Set a PIN for {hid}</h2>
-            <p className="muted">
-              No household yet. Pick a PIN — anyone in the home will
-              use it to access this app.
+        <label>PIN</label>
+        <input
+          autoFocus={!!initialHid}
+          type="password"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="current-password"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        />
+
+        <button disabled={busy} onClick={submit} style={{ marginTop: 16 }}>
+          {busy ? "..." : "Sign in"}
+        </button>
+
+        {unknown && (
+          <div style={{ marginTop: 16 }}>
+            <p className="error" style={{ marginBottom: 8 }}>
+              No home named <code>{hid}</code>.
             </p>
-            <label>PIN (4+ digits)</label>
-            <input
-              autoFocus
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              autoComplete="new-password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-            />
-            <label>Confirm PIN</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              autoComplete="new-password"
-              value={pin2}
-              onChange={(e) => setPin2(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submitSetup(); }}
-            />
-            <button disabled={busy} onClick={submitSetup} style={{ marginTop: 16 }}>
-              {busy ? "..." : "Create household"}
+            <button
+              className="secondary"
+              onClick={goCreate}
+              style={{ width: "100%" }}
+            >
+              Create a new home instead
             </button>
-            <button className="secondary" onClick={() => { setPhase("hid"); setPin(""); setPin2(""); setErr(null); }} style={{ marginTop: 8, width: "100%" }}>
-              Back
-            </button>
-          </>
+          </div>
         )}
 
         {err && <p className="error">{err}</p>}
+
+        {!unknown && initialDevice && (
+          <div style={{
+            marginTop: 24, paddingTop: 16,
+            borderTop: "1px solid var(--theme-line, #2e2440)",
+          }}>
+            <button
+              className="secondary"
+              onClick={goCreate}
+              style={{ width: "100%" }}
+            >
+              No home yet — create one
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
