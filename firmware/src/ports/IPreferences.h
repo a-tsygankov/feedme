@@ -97,6 +97,14 @@ public:
     virtual int  getSleepTimeoutMin(int defaultValue) = 0;
     virtual void setSleepTimeoutMin(int value) = 0;
 
+    // The user-roster slot that fed last — persisted so the
+    // FeederPicker defaults to it on the next feed and the silent
+    // attribution path (FEED_ALL+Press fast lane) uses the right
+    // person without prompting. Updated by PouringView via
+    // UserRoster::setLastFeederIdx().
+    virtual int  getLastFeederIdx(int defaultValue) = 0;
+    virtual void setLastFeederIdx(int value) = 0;
+
     // User roster — Phase D.6. Same per-slot pattern as cats. There is
     // intentionally no "signed-in user" key here — multiple users may
     // use the same device (per handoff.md § "Entities…", clarified

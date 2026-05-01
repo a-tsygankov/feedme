@@ -457,6 +457,10 @@ void setup() {
                 prefs.setUserColor(i, roster.at(i).avatarColor);
             }
         }
+        // Restore the persisted "last user who fed" — picks the
+        // FeederPicker's default focus so multi-user homes don't
+        // re-pick from scratch on every feed.
+        roster.loadLastFeederIdx(prefs.getLastFeederIdx(0));
     }
     display.pouringView().setFeedingService(&feeding);
     display.pouringView().setUserRoster(&display.userRoster());
@@ -650,6 +654,9 @@ void loop() {
                 prefs.setUserName (i, users.at(i).name);
                 prefs.setUserColor(i, users.at(i).avatarColor);
             }
+        }
+        if (display.userRoster().consumeLastFeederDirty()) {
+            prefs.setLastFeederIdx(display.userRoster().lastFeederIdx());
         }
         // Active cat — persisted independently of the roster's dirty
         // flag so the IdleView selector spinning between cats doesn't

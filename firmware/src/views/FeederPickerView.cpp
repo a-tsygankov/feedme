@@ -116,8 +116,16 @@ void FeederPickerView::redraw() {
 }
 
 void FeederPickerView::onEnter() {
-    selectedIdx_ = 1;  // default focus on first user (Cancel at 0)
-    if (selectedIdx_ >= rowCount()) selectedIdx_ = 0;
+    // Default focus to the user who fed last (persisted across boots
+    // via UserRoster::lastFeederIdx). +1 because slot 0 is the
+    // "Cancel" row. Fresh device with no history → lastFeederIdx == 0
+    // → focus on the first user, same as the original behaviour.
+    if (roster_ && roster_->count() > 0) {
+        selectedIdx_ = 1 + roster_->lastFeederIdx();
+        if (selectedIdx_ >= rowCount()) selectedIdx_ = 1;
+    } else {
+        selectedIdx_ = 0;
+    }
     firstRender_ = true;
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }

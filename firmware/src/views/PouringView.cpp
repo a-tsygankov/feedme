@@ -190,6 +190,18 @@ void PouringView::render(const feedme::ports::DisplayFrame&) {
                 feeding_->logFeeding(owner, sel);
             }
         }
+        // Remember who fed (persisted via consumeLastFeederDirty in
+        // main.cpp) so the next feed defaults to the same user without
+        // re-prompting. Source: explicit picker selection if one was
+        // made; otherwise the existing lastFeederIdx is already correct
+        // (the silent fallback used as `owner` above) and a no-op set
+        // skips the dirty flag.
+        if (users_) {
+            const int picked = users_->currentFeederIdx();
+            if (picked >= 0) {
+                users_->setLastFeederIdx(picked);
+            }
+        }
         // Picker clear deferred to FedView::onLeave so the "fed by
         // Alice" attribution there can still read currentFeederName().
         // Devices are shared — there's no remembered "current user"

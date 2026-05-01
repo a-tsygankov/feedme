@@ -50,20 +50,54 @@ public:
     }
 
     // Transient "who is feeding right now" pointer. Set by
-    // FeederPickerView when count() >= 2; cleared by PouringView once
-    // the feed is logged. NOT persisted, NOT dirty-tracked — purely
-    // a per-feed UI state.
+    // FeederPickerView when count() >= 2; cleared by FedView::onLeave
+    // once the feed is logged. NOT persisted, NOT dirty-tracked —
+    // purely a per-feed UI state.
     int currentFeederIdx() const { return currentFeederIdx_; }
     void setCurrentFeeder(int idx) {
         if (idx < 0 || idx >= count_) return;
         currentFeederIdx_ = idx;
     }
     void clearCurrentFeeder() { currentFeederIdx_ = -1; }
-    // Name for the next event's `by` field: explicit pick if set, else
-    // primary user as fallback (covers count() == 1 path silently).
+
+    // The user who fed last — persisted across sessions in NVS. Used
+    // as the FeederPicker's default focus AND as the silent
+    // attribution when the picker is skipped (FEED_ALL+Press fast
+    // path, or single-user homes). Updated by PouringView after a
+    // successful feed.
+    int lastFeederIdx() const {
+        return (lastFeederIdx_ >= 0 && lastFeederIdx_ < count_)
+               ? lastFeederIdx_ : 0;
+    }
+    void setLastFeederIdx(int idx) {
+        if (idx < 0 || idx >= count_) return;
+        if (lastFeederIdx_ == idx) return;
+        lastFeederIdx_ = idx;
+        lastFeederDirty_ = true;
+    }
+    void loadLastFeederIdx(int idx) {
+        if (idx >= 0 && idx < count_) lastFeederIdx_ = idx;
+        else                          lastFeederIdx_ = 0;
+        lastFeederDirty_ = false;
+    }
+    bool consumeLastFeederDirty() {
+        const bool d = lastFeederDirty_;
+        lastFeederDirty_ = false;
+        return d;
+    }
+
+    // Name for the next event's `by` field. Resolution order:
+    //   1. explicit picker selection (currentFeederIdx_)
+    //   2. last user who fed (lastFeederIdx_, persisted across boots)
+    //   3. primary user (covers single-user homes silently)
+    // Falls through naturally — empty roster lands on primaryName()'s
+    // "you" fallback.
     const char* currentFeederName() const {
         if (currentFeederIdx_ >= 0 && currentFeederIdx_ < count_) {
             return users_[currentFeederIdx_].name;
+        }
+        if (lastFeederIdx_ >= 0 && lastFeederIdx_ < count_) {
+            return users_[lastFeederIdx_].name;
         }
         return primaryName();
     }
@@ -97,6 +131,16 @@ public:
         --count_;
         users_[count_] = User{};
         currentFeederIdx_ = -1;  // any cached selection is now stale
+        // Clamp the persisted "last feeder" — if the removed user was
+        // the last-fed-by, fall back to slot 0; if a user above the
+        // removed slot was last, slide their index down by one.
+        if (lastFeederIdx_ == slot) {
+            lastFeederIdx_ = 0;
+            lastFeederDirty_ = true;
+        } else if (lastFeederIdx_ > slot) {
+            --lastFeederIdx_;
+            lastFeederDirty_ = true;
+        }
         dirty_ = true;
         return true;
     }
@@ -142,6 +186,8 @@ private:
     uint8_t nextId_            = 0;
     bool    dirty_             = false;
     int     currentFeederIdx_  = -1;  // transient, not persisted
+    int     lastFeederIdx_     = 0;   // persisted; default to slot 0
+    bool    lastFeederDirty_   = false;
 };
 
 }  // namespace feedme::domain
