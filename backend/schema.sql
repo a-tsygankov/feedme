@@ -62,18 +62,24 @@ CREATE TABLE IF NOT EXISTS users (
   PRIMARY KEY (hid, slot_id)
 );
 
--- ── Migration for existing databases ──────────────────────────────
--- For a fresh `wrangler d1 execute feedme --remote --file=./schema.sql`,
--- the CREATE above already includes `cat` + `event_id`. For databases
--- provisioned before these columns existed, run:
+-- ── Migrations ────────────────────────────────────────────────────
+-- This file is the CANONICAL FULL SCHEMA — what a brand-new database
+-- should look like. For existing databases that need to catch up to
+-- the current state, see `migrations/` and the README there.
 --
---   wrangler d1 execute feedme --remote \
---     --command="ALTER TABLE events ADD COLUMN cat TEXT NOT NULL DEFAULT 'primary'"
---   wrangler d1 execute feedme --remote \
---     --command="ALTER TABLE events ADD COLUMN event_id TEXT"
---   wrangler d1 execute feedme --remote \
---     --command="CREATE UNIQUE INDEX idx_event_id ON events(event_id)"
+--   migrations/0001_legacy_event_cols.sql  — adds `cat` + `event_id`
+--                                            to events for pre-Phase-2
+--                                            databases. Skip if the
+--                                            DB was created against
+--                                            a recent schema.sql.
+--   migrations/0002_webapp_tables.sql      — household / cats / users
+--                                            tables for the web app.
 --
--- D1's ALTER TABLE supports ADD COLUMN with a DEFAULT. The UNIQUE
--- index allows multiple NULLs (SQLite treats NULL as distinct from
--- itself for uniqueness), so legacy rows without an id keep working.
+-- Apply old → new with the npm scripts:
+--   npm run db:migrate:0001:remote
+--   npm run db:migrate:0002:remote
+--
+-- DON'T run `db:apply:remote` (this file) on an old DB that's missing
+-- the events.event_id column — the `CREATE UNIQUE INDEX idx_event_id`
+-- below references that column and SQLite will error out. Use the
+-- migration files for incremental upgrades.

@@ -64,6 +64,28 @@ src/
 - 30-day TTL; `ApiError` with status 401 → router bounces to
   `/login`.
 
+## Backend prerequisites
+
+This app talks to the Worker in `../backend`. Before first deploy:
+
+```sh
+cd ../backend
+
+# Apply schema. For a brand-new D1, schema.sql is enough:
+npm run db:apply:remote
+
+# For an existing D1 that pre-dates the web app, run migrations
+# in order (errors on already-applied steps are expected and safe):
+npm run db:migrate:0001:remote   # legacy event columns
+npm run db:migrate:0002:remote   # web-app tables
+
+# One-time: set the auth signing secret:
+npx wrangler secret put AUTH_SECRET
+# (paste a long random string)
+
+npm run deploy
+```
+
 ## Coming soon
 
 - Statistics dashboard (per-cat / per-user / per-day breakdowns)
