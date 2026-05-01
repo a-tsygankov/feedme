@@ -24,7 +24,6 @@ volatile uint32_t gPendingSwitchAt = 0;       // in-place: deferred-switch wall 
 volatile bool    gInPlaceMode = false;        // chooses which form / catch-all
 String           gPendingSsid;
 String           gPendingPass;
-String           gPendingHid;
 String           gPendingUser;
 
 // Form HTML. Inline so the binary doesn't need yet another file/asset
@@ -32,6 +31,10 @@ String           gPendingUser;
 // of KB makes no difference on a 16 MB flash. The {SSID_OPTIONS}
 // placeholder gets replaced server-side with one <option> per scan
 // result.
+//
+// Note: no household-ID field anymore. The device generates its own
+// hid (feedme-{mac6}) at boot and shows it on the pairing screen with
+// a QR. One less typo source, one less thing to remember.
 const char kFormHtml[] PROGMEM = R"HTML(<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FeedMe setup</title>
@@ -42,6 +45,7 @@ label{display:block;margin:14px 0 4px;font-size:13px;color:#9c97a4;text-transfor
 input,select{width:100%;padding:12px;border:1px solid #2e2440;background:#0e0817;color:#f6f1e6;border-radius:6px;font-size:16px;box-sizing:border-box;}
 button{margin-top:24px;width:100%;padding:14px;border:0;background:#ffb3c1;color:#1a1226;font-size:16px;font-weight:600;border-radius:6px;cursor:pointer;}
 .hint{font-size:12px;color:#9c97a4;margin-top:4px;}
+.hint.box{margin-top:14px;padding:12px;background:#0e0817;border:1px solid #2e2440;border-radius:6px;line-height:1.4;}
 </style></head><body>
 <h1>FeedMe setup</h1>
 <form method="POST" action="/save">
@@ -49,12 +53,11 @@ button{margin-top:24px;width:100%;padding:14px;border:0;background:#ffb3c1;color
 <select name="ssid" required>{SSID_OPTIONS}</select>
 <label>Password</label>
 <input type="password" name="pass" autocomplete="off">
-<label>Household ID</label>
-<input type="text" name="hid" placeholder="home-andrey" required>
-<div class="hint">Same string on every device in this home.</div>
 <label>Your name (optional)</label>
 <input type="text" name="user" placeholder="Andrey">
 <div class="hint">Stamps every feed you log. Skip = "User 0".</div>
+<div class="hint box">After Save, the device reboots and shows a pairing QR.
+Scan it with any phone to set a PIN and open the web app.</div>
 <button type="submit">Save and connect</button>
 </form>
 </body></html>)HTML";
@@ -150,10 +153,11 @@ void handleSwitch() {
 void handleSave() {
     gPendingSsid = gHttp.arg("ssid");
     gPendingPass = gHttp.arg("pass");
-    gPendingHid  = gHttp.arg("hid");
     gPendingUser = gHttp.arg("user");
-    if (gPendingSsid.isEmpty() || gPendingHid.isEmpty()) {
-        gHttp.send(400, "text/plain", "ssid and hid required");
+    // hid is no longer collected here — main.cpp generates it from the
+    // MAC at boot. The pairing screen on the device shows the QR.
+    if (gPendingSsid.isEmpty()) {
+        gHttp.send(400, "text/plain", "ssid required");
         return;
     }
     String body = kDoneHtml;
@@ -277,7 +281,6 @@ void WifiCaptivePortal::handle() {
             if (prefs_) {
                 prefs_->setWifiSsid(gPendingSsid.c_str());
                 prefs_->setWifiPass(gPendingPass.c_str());
-                prefs_->setHid     (gPendingHid.c_str());
                 if (!gPendingUser.isEmpty()) {
                     // Seed user-roster slot 0 with the captured name so
                     // the first feed gets attributed correctly. Roster
@@ -286,9 +289,8 @@ void WifiCaptivePortal::handle() {
                     prefs_->setUserId  (0, 0);
                     prefs_->setUserName(0, gPendingUser.c_str());
                 }
-                Serial.printf("[setup] saved ssid='%s' hid='%s' user='%s'\n",
-                              gPendingSsid.c_str(), gPendingHid.c_str(),
-                              gPendingUser.c_str());
+                Serial.printf("[setup] saved ssid='%s' user='%s'\n",
+                              gPendingSsid.c_str(), gPendingUser.c_str());
             }
         }
         return;

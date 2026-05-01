@@ -53,6 +53,13 @@
 #define LV_USE_PNG                1
 #define LV_IMG_CACHE_DEF_SIZE     24
 
+// QR code generator for the pairing screen — renders the device's
+// per-device URL (https://feedme-webapp.pages.dev/setup?hid=feedme-…)
+// on first boot so the user never has to type the household ID. Pulls
+// in qrcodegen.c (~10 KB flash); rendering uses the existing canvas
+// path (LV_USE_CANVAS=1 above).
+#define LV_USE_QRCODE             1
+
 // Use the standard libc malloc/free family for image cache + decoded
 // buffers. With LV_MEM_CUSTOM=0 LVGL has its own ~48 KB pool for
 // widgets but image decode buffers go through malloc — which lands in

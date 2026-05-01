@@ -244,6 +244,29 @@ void NvsPreferences::clearWifiCreds() {
     prefs_.remove(KEY_WIFI_SSID);
     prefs_.remove(KEY_WIFI_PASS);
     prefs_.remove(KEY_HID);
+    // Also clear the paired flag so the user sees the pairing screen
+    // again on the next boot (new hid will be generated, new QR shown).
+    prefs_.remove(KEY_PAIRED);
+}
+
+bool NvsPreferences::getPaired(bool defaultValue) {
+    if (!ready_) return defaultValue;
+    return prefs_.getBool(KEY_PAIRED, defaultValue);
+}
+
+void NvsPreferences::setPaired(bool value) {
+    if (!ready_) return;
+    prefs_.putBool(KEY_PAIRED, value);
+}
+
+int NvsPreferences::getHidResetCount(int defaultValue) {
+    if (!ready_) return defaultValue;
+    return prefs_.getInt(KEY_HID_RESET_COUNT, defaultValue);
+}
+
+void NvsPreferences::setHidResetCount(int value) {
+    if (!ready_) return;
+    prefs_.putInt(KEY_HID_RESET_COUNT, value);
 }
 
 }  // namespace feedme::adapters

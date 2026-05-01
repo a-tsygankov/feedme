@@ -4,6 +4,7 @@ import CatsPage from "./views/CatsPage";
 import HomePage from "./views/HomePage";
 import LoginPage from "./views/LoginPage";
 import SettingsPage from "./views/SettingsPage";
+import SetupPage from "./views/SetupPage";
 import UsersPage from "./views/UsersPage";
 
 // Top-level chrome. Auth gating is route-side: if the user has no
@@ -15,6 +16,11 @@ export default function App() {
     <div className="app">
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* /setup is the QR landing page from the device — always
+            reachable, even without a token, since it's the entry point
+            for first-time pairing. Falls through to PIN setup or to a
+            "this hid is already paired" prompt. */}
+        <Route path="/setup" element={<SetupPage />} />
         <Route path="/"           element={isAuthed ? <HomePage />    : <Navigate to="/login" replace />} />
         <Route path="/cats"       element={isAuthed ? <CatsPage />    : <Navigate to="/login" replace />} />
         <Route path="/users"      element={isAuthed ? <UsersPage />   : <Navigate to="/login" replace />} />
