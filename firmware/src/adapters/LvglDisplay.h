@@ -88,6 +88,7 @@ public:
     feedme::views::PouringView&     pouringView()  { return pouringView_; }
     feedme::views::SettingsView&    settingsView() { return settingsView_; }
     feedme::views::SetupView&       setupView()    { return setupView_; }
+    feedme::views::MenuView&        menuView()     { return menuView_; }
     feedme::views::LockConfirmView& lockConfirmView() { return lockConfirmView_; }
     feedme::views::ThresholdEditView& thresholdEditView() { return thresholdEditView_; }
     feedme::views::WifiResetView&     wifiResetView()     { return wifiResetView_; }

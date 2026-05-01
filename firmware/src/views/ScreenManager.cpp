@@ -49,6 +49,7 @@ void ScreenManager::transition(const char* name) {
     if (current_) current_->onLeave();
     current_ = next;
     current_->onEnter();
+    lastTransitionMs_ = millis();   // start the input cooldown
 }
 
 void ScreenManager::render(const feedme::ports::DisplayFrame& frame) {
@@ -62,6 +63,23 @@ void ScreenManager::render(const feedme::ports::DisplayFrame& frame) {
 
 const char* ScreenManager::handleInput(feedme::ports::TapEvent ev) {
     if (!current_) return nullptr;
+    // Cooldown: drop input that arrives within TRANSITION_COOLDOWN_MS
+    // of the last screen change. This stops the "press carries over"
+    // pattern where the same tactile click appears to fire twice —
+    // once for navigation, once for whatever the destination view's
+    // primary press action is. LongPress / LongTouch are exempt
+    // because they're always intentional and we don't want a fast
+    // user trapping themselves in a screen.
+    if (lastTransitionMs_ != 0
+        && ev != feedme::ports::TapEvent::LongPress
+        && ev != feedme::ports::TapEvent::LongTouch
+        && millis() - lastTransitionMs_ < TRANSITION_COOLDOWN_MS) {
+        Serial.printf("[screen] dropped %d during cooldown (%lums)\n",
+                      static_cast<int>(ev),
+                      static_cast<unsigned long>(millis() - lastTransitionMs_));
+        return nullptr;
+    }
+
     // Let the view claim the event first.
     const char* result = current_->handleInput(ev);
     if (result) return result;

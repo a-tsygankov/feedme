@@ -22,6 +22,8 @@ public:
     void onEvent(Listener listener) override;
     void poll() override;
     bool isPressed() const override { return wasTouching_; }
+    int  lastTouchX() const override { return lastTouchX_; }
+    int  lastTouchY() const override { return lastTouchY_; }
 
 private:
     void emit(feedme::ports::TapEvent ev);
@@ -33,6 +35,8 @@ private:
     uint32_t  touchStartMs_    = 0;
     uint32_t  lastTapEndMs_    = 0;
     uint32_t  lastPollMs_      = 0;
+    int       lastTouchX_      = -1;   // captured at touch-end
+    int       lastTouchY_      = -1;
 };
 
 }  // namespace feedme::adapters

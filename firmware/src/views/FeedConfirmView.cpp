@@ -4,6 +4,7 @@
 #include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
+#include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -85,12 +86,15 @@ void FeedConfirmView::build(lv_obj_t* parent) {
     lv_label_set_text(unitLbl_, "g");
     lv_obj_align(unitLbl_, LV_ALIGN_TOP_MID, 22, 156);
 
-    // Kicker hint, faint uppercase.
+    // Kicker hint, faint uppercase. Uses the scrolling helper because
+    // the multi-cat "ALL  CATS  -  PRESS POUR" line and long cat names
+    // both overflow the chord at this y; LONG_DOT truncated them with
+    // an ellipsis. LONG_SCROLL_CIRCULAR keeps the full text visible.
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hintLbl_, "TAP ADJ  PRESS POUR");
-    applyClippedLabel(hintLbl_, 160);
+    applyScrollingLabel(hintLbl_, 160);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
 
     addBackHint(root_);
@@ -154,11 +158,13 @@ void FeedConfirmView::redraw() {
     lv_label_set_text(portionLbl_, buf);
 
     // Hint line — show what the selection means + how to change it.
+    // setScrollingText (matches applyScrollingLabel above) appends a
+    // trailing gap so the wrap-around between loops is visible.
     if (roster_->count() >= 2) {
-        if (feedAll) lv_label_set_text(hintLbl_, "ALL  CATS  -  PRESS POUR");
-        else         lv_label_set_text(hintLbl_, cat.name);
+        if (feedAll) setScrollingText(hintLbl_, "ALL  CATS  -  PRESS POUR");
+        else         setScrollingText(hintLbl_, cat.name);
     } else {
-        lv_label_set_text(hintLbl_, "TURN  ADJ  PRESS  POUR");
+        setScrollingText(hintLbl_, "TURN  ADJ  PRESS  POUR");
     }
     lastDrawnG_ = g;
 }
@@ -218,10 +224,14 @@ const char* FeedConfirmView::handleInput(feedme::ports::TapEvent ev) {
                 roster_->activePortion().bumpDown();
             }
             return nullptr;
-        case E::Press:
+        case E::Press: {
             // Adaptive: N≥2 users → ask who's feeding before logging.
+            const int uc = users_ ? users_->count() : -1;
+            Serial.printf("[feedConfirm] Press users=%d → %s\n",
+                          uc, (uc >= 2) ? "feederPick" : "pouring");
             if (users_ && users_->count() >= 2) return "feederPick";
             return "pouring";
+        }
         case E::Tap:       return "portionAdjust";
         // Long-press / long-touch → ScreenManager fallback to parent().
         default:           return nullptr;
