@@ -1,5 +1,7 @@
 #pragma once
 
+#include "views/Theme.h"
+
 #include <lvgl.h>
 
 #include <stdio.h>
@@ -64,6 +66,28 @@ inline void setScrollingText(lv_obj_t* lbl, const char* text) {
     char buf[128];
     snprintf(buf, sizeof(buf), "%s%s", text, kScrollingGap);
     lv_label_set_text(lbl, buf);
+}
+
+// Universal "long-press = back" hint. Every navigable view (anything
+// with a meaningful parent()) should call this from build() so the
+// gesture is discoverable. Sits at the very bottom edge of the round
+// screen in the faint theme colour, below any per-view gesture hint
+// at BOTTOM_MID -22.
+//
+// Default y=-4 puts it close to the bezel where the chord is narrow
+// (~75 px). LV_SYMBOL_LEFT + " hold" measures ~50 px in Montserrat 14
+// and reads as "◀ hold" — compact, no fancy font dependency.
+//
+// Returns the label object so callers can re-style or hide it for
+// the rare view that needs to (e.g. the captive-portal SetupView,
+// where there's no input at all and the hint would lie).
+inline lv_obj_t* addBackHint(lv_obj_t* parent, int yOffset = -4) {
+    lv_obj_t* lbl = lv_label_create(parent);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(kTheme.faint), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+    lv_label_set_text(lbl, LV_SYMBOL_LEFT "  hold");
+    lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, yOffset);
+    return lbl;
 }
 
 }  // namespace feedme::views

@@ -92,6 +92,8 @@ void FeedConfirmView::build(lv_obj_t* parent) {
     lv_label_set_text(hintLbl_, "TAP ADJ  PRESS POUR");
     applyClippedLabel(hintLbl_, 160);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
+
+    addBackHint(root_);
 }
 
 void FeedConfirmView::redraw() {

@@ -121,6 +121,8 @@ void SettingsView::build(lv_obj_t* parent) {
         applyClippedLabel(rowValues_[i], 95, LV_TEXT_ALIGN_RIGHT);
         lv_obj_align(rowValues_[i], LV_ALIGN_RIGHT_MID, 0, 0);
     }
+
+    addBackHint(root_);   // ◀ hold = back to menu
 }
 
 void SettingsView::redraw() {

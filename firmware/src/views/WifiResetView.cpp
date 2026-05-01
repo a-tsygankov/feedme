@@ -94,6 +94,8 @@ void WifiResetView::build(lv_obj_t* parent) {
     lv_label_set_text(hint_, "PRESS  OK   TURN  X");
     applyClippedLabel(hint_, 140);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -22);
+
+    addBackHint(root_);
 }
 
 void WifiResetView::onEnter() {

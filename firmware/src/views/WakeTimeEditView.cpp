@@ -49,6 +49,8 @@ void WakeTimeEditView::build(lv_obj_t* parent) {
     lv_label_set_text(hintLbl_, "TURN ADJ  PRESS NEXT");
     applyClippedLabel(hintLbl_, 160);
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -24);
+
+    addBackHint(root_);
 }
 
 void WakeTimeEditView::applyFocusStyles() {

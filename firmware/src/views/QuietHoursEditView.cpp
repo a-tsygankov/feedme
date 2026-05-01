@@ -58,6 +58,8 @@ void QuietHoursEditView::build(lv_obj_t* parent) {
     lv_label_set_text(hint_, "TURN ADJ  PRESS NEXT");
     applyClippedLabel(hint_, 160);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -24);
+
+    addBackHint(root_);
 }
 
 void QuietHoursEditView::applyFocusStyles() {

@@ -1,5 +1,6 @@
 #include "views/ScheduleView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <math.h>
@@ -65,6 +66,8 @@ void ScheduleView::build(lv_obj_t* parent) {
         lv_label_set_text(slotSubs_[i], "");
         lv_obj_align(slotSubs_[i], LV_ALIGN_CENTER, 0, 8);
     }
+
+    addBackHint(root_);
 }
 
 void ScheduleView::applySlotStyles(int currentIdx) {

@@ -43,6 +43,8 @@ void ThresholdEditView::build(lv_obj_t* parent) {
     lv_label_set_text(hint_, "TURN ADJ  PRESS SAVE");
     applyClippedLabel(hint_, 160);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -24);
+
+    addBackHint(root_);
 }
 
 void ThresholdEditView::redraw() {

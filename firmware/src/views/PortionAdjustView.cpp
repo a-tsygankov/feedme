@@ -1,5 +1,6 @@
 #include "views/PortionAdjustView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <stdio.h>
@@ -70,6 +71,8 @@ void PortionAdjustView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hintLbl_, "TAP  SAVE");
     lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
+
+    addBackHint(root_);
 }
 
 void PortionAdjustView::redraw() {

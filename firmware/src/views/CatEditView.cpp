@@ -68,6 +68,8 @@ void CatEditView::build(lv_obj_t* parent) {
     lv_label_set_text(hint_, "TURN PICK  TAP NEXT");
     applyClippedLabel(hint_, 160);
     lv_obj_align(hint_, LV_ALIGN_BOTTOM_MID, 0, -22);
+
+    addBackHint(root_);
 }
 
 void CatEditView::cycleSlug(int delta) {

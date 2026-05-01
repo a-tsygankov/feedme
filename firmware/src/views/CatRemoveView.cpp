@@ -1,5 +1,6 @@
 #include "views/CatRemoveView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <Arduino.h>
@@ -62,6 +63,8 @@ void CatRemoveView::build(lv_obj_t* parent) {
         lv_label_set_text(labels_[i], "");
         lv_obj_center(labels_[i]);
     }
+
+    addBackHint(root_);
 }
 
 void CatRemoveView::redraw() {
