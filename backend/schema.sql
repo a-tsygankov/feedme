@@ -21,6 +21,47 @@ CREATE INDEX        IF NOT EXISTS idx_hid_ts     ON events(hid, ts DESC);
 CREATE INDEX        IF NOT EXISTS idx_hid_cat_ts ON events(hid, cat, ts DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_id   ON events(event_id);
 
+-- ── Households ────────────────────────────────────────────────────
+-- One row per household. PIN is required to access the web app
+-- and stored as PBKDF2-SHA256(plain_pin, salt, 100k iters). Salt
+-- and hash are 32 bytes each (hex-encoded → 64 chars).
+CREATE TABLE IF NOT EXISTS households (
+  hid        TEXT PRIMARY KEY,
+  pin_salt   TEXT NOT NULL,
+  pin_hash   TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- ── Cats ──────────────────────────────────────────────────────────
+-- Mirrors the firmware's CatRoster. slot_id is the stable uint8_t
+-- from the device (0..3 today, MAX_CATS=4) — composite PK with hid
+-- so multiple households can each have a slot 0. Soft delete via
+-- deleted_at preserves event-attribution lookups for cats removed
+-- from the active roster.
+CREATE TABLE IF NOT EXISTS cats (
+  hid                  TEXT NOT NULL,
+  slot_id              INTEGER NOT NULL,
+  name                 TEXT NOT NULL,
+  color                INTEGER NOT NULL DEFAULT 0,         -- 0xRRGGBB; 0 = "auto"
+  slug                 TEXT NOT NULL DEFAULT 'C2',
+  default_portion_g    INTEGER NOT NULL DEFAULT 40,
+  hungry_threshold_sec INTEGER NOT NULL DEFAULT 18000,     -- 5 hours
+  deleted_at           INTEGER,                            -- NULL = active
+  PRIMARY KEY (hid, slot_id)
+);
+
+-- ── Users ─────────────────────────────────────────────────────────
+-- Mirrors the firmware's UserRoster. Same composite-PK pattern as
+-- cats. Soft delete keeps event `by` attributions stable.
+CREATE TABLE IF NOT EXISTS users (
+  hid        TEXT NOT NULL,
+  slot_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  color      INTEGER NOT NULL DEFAULT 0,                   -- 0xRRGGBB; 0 = "auto"
+  deleted_at INTEGER,                                      -- NULL = active
+  PRIMARY KEY (hid, slot_id)
+);
+
 -- ── Migration for existing databases ──────────────────────────────
 -- For a fresh `wrangler d1 execute feedme --remote --file=./schema.sql`,
 -- the CREATE above already includes `cat` + `event_id`. For databases
