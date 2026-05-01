@@ -38,16 +38,15 @@ struct ItemSpec {
 // Settings entry was duplicative. The slot is now a placeholder for
 // Notifications (Phase 4.1) — value renders as "—" and tap is a
 // no-op until the editor lands.
+// Cats / Users / Pair / Reset moved out to HomeView (reached via the
+// main menu's "H" glyph). Settings now scopes to per-device tunables.
 const ItemSpec kItems[SettingsView::ITEM_COUNT] = {
     { "Wi-Fi",     LV_SYMBOL_WIFI },
     { "Wake",      "K"            },   // no built-in sun glyph
     { "Notify",    LV_SYMBOL_BELL },   // placeholder — Phase 4.1 push notifications
     { "Threshold", LV_SYMBOL_SETTINGS },
-    { "Cats",      "*"            },   // no paw glyph; placeholder for IcCat
-    { "Users",     "U"            },   // placeholder for IcUser
     { "Timezone",  "Z"            },   // placeholder for IcGlobe
     { "Sleep",     LV_SYMBOL_POWER }, // power-symbol stand-in for sleep timeout
-    { "Pair",      "Q"            },  // re-show pairing QR; long-press there resets
 };
 
 }  // namespace
@@ -134,8 +133,6 @@ void SettingsView::redraw() {
     const int  wakeM     = wake_    ? wake_->minute()      : -1;
     const long thresholdSec = coord_ ? static_cast<long>(coord_->hungryThresholdSec())
                                      : -1L;
-    const int  catCount     = roster_      ? roster_->count()      : -1;
-    const int  userCount    = userRoster_  ? userRoster_->count()  : -1;
     const int  tzMin        = tz_          ? tz_->offsetMin()      : -99999;
     const int  sleepMin     = sleep_       ? sleep_->minutes()     : -99999;
 
@@ -147,8 +144,6 @@ void SettingsView::redraw() {
                          || wakeH        != lastDrawnWakeHour_
                          || wakeM        != lastDrawnWakeMinute_
                          || thresholdSec != lastDrawnThresholdSec_
-                         || catCount     != lastDrawnCatCount_
-                         || userCount    != lastDrawnUserCount_
                          || tzMin        != lastDrawnTzMin_
                          || sleepMin     != lastDrawnSleepMin_;
     if (!changed) return;
@@ -229,26 +224,6 @@ void SettingsView::redraw() {
                 break;
             }
             case 4: {
-                if (catCount >= 0) {
-                    char buf[8];
-                    snprintf(buf, sizeof(buf), "%d", catCount);
-                    lv_label_set_text(rowValues_[i], buf);
-                } else {
-                    lv_label_set_text(rowValues_[i], "-");
-                }
-                break;
-            }
-            case 5: {
-                if (userCount >= 0) {
-                    char buf[8];
-                    snprintf(buf, sizeof(buf), "%d", userCount);
-                    lv_label_set_text(rowValues_[i], buf);
-                } else {
-                    lv_label_set_text(rowValues_[i], "-");
-                }
-                break;
-            }
-            case 6: {
                 if (tz_) {
                     if (tzMin == 0) {
                         lv_label_set_text(rowValues_[i], "UTC");
@@ -269,7 +244,7 @@ void SettingsView::redraw() {
                 }
                 break;
             }
-            case 7: {
+            case 5: {
                 // Sleep timeout. 0 minutes → "--" (sleep disabled);
                 // matches the editor's display so the user sees the
                 // same string both places.
@@ -287,12 +262,6 @@ void SettingsView::redraw() {
                 }
                 break;
             }
-            case 8: {
-                // Pair → opens the pairing QR. No persistent value;
-                // the action is the destination itself.
-                lv_label_set_text(rowValues_[i], "");
-                break;
-            }
         }
     }
 
@@ -303,8 +272,6 @@ void SettingsView::redraw() {
     lastDrawnWakeHour_         = wakeH;
     lastDrawnWakeMinute_       = wakeM;
     lastDrawnThresholdSec_     = thresholdSec;
-    lastDrawnCatCount_         = catCount;
-    lastDrawnUserCount_        = userCount;
     lastDrawnTzMin_            = tzMin;
     lastDrawnSleepMin_         = sleepMin;
     firstRender_               = false;
@@ -335,8 +302,8 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press:
-            // Phase D dispatch — each row maps to its sub-editor view.
-            // Items not yet implemented log the intent and stay put.
+            // Each row maps to its sub-editor view. Items not yet
+            // implemented log the intent and stay put.
             switch (selectedIdx_) {
                 case 0:  // Wi-Fi reset confirmation (Phase D.4) — wired
                     return "wifiReset";
@@ -346,16 +313,10 @@ const char* SettingsView::handleInput(feedme::ports::TapEvent ev) {
                     return nullptr;
                 case 3:  // Threshold editor (Phase D.3) — wired
                     return "thresholdEdit";
-                case 4:  // Cats list (Phase D.5) — wired
-                    return "catsList";
-                case 5:  // Users list (Phase D.6) — wired
-                    return "usersList";
-                case 6:  // Timezone editor — wired
+                case 4:  // Timezone editor — wired
                     return "timezoneEdit";
-                case 7:  // Sleep timeout editor — wired
+                case 5:  // Sleep timeout editor — wired
                     return "sleepTimeoutEdit";
-                case 8:  // Pair: re-show QR. Long-press there resets.
-                    return "pairing";
             }
             return nullptr;
         // Long-press / long-touch → ScreenManager fallback to parent().

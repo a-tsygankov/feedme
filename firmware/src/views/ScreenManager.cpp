@@ -37,10 +37,16 @@ IView* ScreenManager::find(const char* name) const {
 void ScreenManager::transition(const char* name) {
     IView* next = find(name);
     if (!next) {
-        Serial.printf("[screen] unknown view '%s' — staying on '%s'\n",
+        Serial.printf("[screen] unknown view '%s' — falling back to 'idle' (was '%s')\n",
                       name ? name : "(null)",
                       current_ ? current_->name() : "(none)");
-        return;
+        // Fall back to idle rather than staying put. Staying put can
+        // freeze the device on the boot splash if BootView::nextView()
+        // points at a destination that wasn't registered (silent
+        // MAX_VIEWS overflow). Idle is always reachable; landing
+        // there is recoverable, freezing on boot is not.
+        next = find("idle");
+        if (!next) return;   // very early boot: nothing's registered yet
     }
     if (next == current_) return;
     Serial.printf("[screen] %s -> %s\n",

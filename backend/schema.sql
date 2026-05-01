@@ -22,15 +22,44 @@ CREATE INDEX        IF NOT EXISTS idx_hid_cat_ts ON events(hid, cat, ts DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_id   ON events(event_id);
 
 -- ── Households ────────────────────────────────────────────────────
--- One row per household. PIN is required to access the web app
+-- One row per home. After migration 0004, `hid` IS the home name —
+-- a user-chosen unique identifier picked at setup time (e.g.
+-- "Smith Family", "kitchen"). PIN is required to access the web app
 -- and stored as PBKDF2-SHA256(plain_pin, salt, 100k iters). Salt
 -- and hash are 32 bytes each (hex-encoded → 64 chars).
+--
+-- The `name` column is a leftover from migration 0003 (when name +
+-- hid were separate). Current code doesn't read or write it; left
+-- in place to avoid a destructive migration. Treat as deprecated —
+-- always use `hid` as the display name.
 CREATE TABLE IF NOT EXISTS households (
   hid        TEXT PRIMARY KEY,
   pin_salt   TEXT NOT NULL,
   pin_hash   TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  name       TEXT NOT NULL DEFAULT ''   -- deprecated; see migration 0004 notes
 );
+
+-- ── Devices ───────────────────────────────────────────────────────
+-- Maps a physical FeedMe device (its firmware-generated hid like
+-- feedme-a8b3c1d4e5f6) to a home (households.hid). Many-to-one:
+-- multiple devices can pair into the same home. Populated by
+-- /api/auth/setup (when the user creates a home from a device QR)
+-- and /api/auth/login (when a user signs into an existing home from
+-- a fresh device's QR — "claim").
+--
+-- Firmware-facing endpoints (/api/feed, /api/state, /api/history)
+-- accept the firmware's hid in their payload and translate it via
+-- this table to the home's hid before reading/writing the events
+-- table. If a device hasn't been claimed, the lookup falls back to
+-- treating the device hid as the home hid — preserves single-device
+-- legacy behaviour with zero firmware changes required.
+CREATE TABLE IF NOT EXISTS devices (
+  device_id TEXT PRIMARY KEY,
+  home_hid  TEXT NOT NULL,
+  joined_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_devices_home_hid ON devices(home_hid);
 
 -- ── Cats ──────────────────────────────────────────────────────────
 -- Mirrors the firmware's CatRoster. slot_id is the stable uint8_t

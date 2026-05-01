@@ -19,6 +19,7 @@
 #include "views/CatEditView.h"
 #include "views/CatRemoveView.h"
 #include "views/CatsListView.h"
+#include "views/HomeView.h"
 #include "views/IdleView.h"
 #include "views/LockConfirmView.h"
 #include "views/MenuView.h"
@@ -93,6 +94,7 @@ public:
     feedme::views::PairingView&     pairingView()  { return pairingView_; }
     feedme::views::ResetPairConfirmView& resetPairConfirmView() { return resetPairConfirmView_; }
     feedme::views::BootView&        bootView()     { return bootView_; }
+    feedme::views::HomeView&        homeView()     { return homeView_; }
     feedme::views::MenuView&        menuView()     { return menuView_; }
     feedme::views::LockConfirmView& lockConfirmView() { return lockConfirmView_; }
     feedme::views::ThresholdEditView& thresholdEditView() { return thresholdEditView_; }
@@ -162,6 +164,11 @@ private:
     // press. On confirm, rotates the hid + reboots so the user can
     // start over (forgotten PIN, change of household, etc).
     feedme::views::ResetPairConfirmView resetPairConfirmView_;
+    // Home — household-scoped navigation hub (Cats, Users, Pair,
+    // Reset). Reached from the main menu's "H" glyph (replaces the
+    // old Quiet entry); the items themselves used to live under
+    // Settings.
+    feedme::views::HomeView            homeView_;
     // Phase D.5 — Cats roster + per-cat slug picker.
     feedme::views::CatsListView        catsListView_;
     feedme::views::CatEditView         catEditView_;

@@ -11,21 +11,27 @@ namespace feedme::views {
 namespace {
 
 // Keep destinations + glyph chars co-indexed with selected_.
-// LVGL doesn't ship dedicated bowl/clock/moon/gear icons, so v0 uses
+// LVGL doesn't ship dedicated bowl/clock/home/gear icons, so v0 uses
 // short text labels. Replace with proper line icons (per
 // FeedMeKnobIcons.jsx) in a follow-up — see feedmeknob-plan.md
 // Phase B postscript.
+//
+// Slot 2 used to host Quiet hours; the household-scoped surface
+// (Cats / Users / Pair / Reset) outgrew Settings, so this slot now
+// opens the Home navigation hub. Quiet hours are still reachable via
+// the in-glyph editor if it gets re-promoted in a future iteration —
+// QuietView + QuietHoursEditView remain registered, just orphaned.
 constexpr int    R_ORBIT  = 70;     // px from centre
 constexpr int    GLYPH_PX = 40;     // glyph circle diameter
 
 const char* const kLabels[MenuView::ITEM_COUNT] = {
-    "Feed", "Schedule", "Quiet", "Settings",
+    "Feed", "Schedule", "Home", "Settings",
 };
 const char* const kGlyphs[MenuView::ITEM_COUNT] = {
-    "F",    "S",        "Q",     "G",
+    "F",    "S",        "H",    "G",
 };
 const char* const kDest[MenuView::ITEM_COUNT] = {
-    "feedConfirm", "schedule", "quiet", "settings",
+    "feedConfirm", "schedule", "home", "settings",
 };
 
 }  // namespace

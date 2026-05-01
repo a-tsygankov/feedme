@@ -39,15 +39,19 @@ void PairingView::build(lv_obj_t* parent) {
     lv_label_set_text(titleLbl_, "Scan to pair");
     lv_obj_align(titleLbl_, LV_ALIGN_TOP_MID, 0, 22);
 
-    // QR canvas — created with a placeholder URL; updated in onEnter
-    // each time the screen is shown (the hid may change after a reset).
-    // Dark = ink, light = white for max contrast on the round display.
+    // QR canvas. MUST be pure black-on-white — phone cameras lose the
+    // pattern under any other contrast. Don't reach for kTheme.ink
+    // here: on the dark Aubergine theme that's a near-white cream
+    // (designed for text on bg), and pairing it with a white canvas
+    // background paints invisible modules.
     qrcode_ = lv_qrcode_create(root_,
                                kQrSize,
-                               lv_color_hex(kTheme.ink),
+                               lv_color_black(),
                                lv_color_white());
     lv_obj_align(qrcode_, LV_ALIGN_CENTER, 0, -6);
-    // White margin around the modules — required for camera detection.
+    // White margin around the modules — the QR spec's "quiet zone"
+    // (4-module wide blank border). Without it some decoders refuse
+    // to lock onto the finder patterns.
     lv_obj_set_style_border_color(qrcode_, lv_color_white(), 0);
     lv_obj_set_style_border_width(qrcode_, 4, 0);
 

@@ -103,12 +103,13 @@ void LvglDisplay::buildScene() {
     settingsView_.setWake(&wake_);
     wakeTimeEditView_.setWakeTime(&wake_);
     quietHoursEditView_.setQuiet(&quiet_);
-    settingsView_.setRoster(&roster_);
-    settingsView_.setUserRoster(&userRoster_);
+    // (Cats/Users counts moved to HomeView — no roster setters here.)
     settingsView_.setTimeZone(&tz_);
     settingsView_.setSleepTimeout(&sleep_);
     timezoneEditView_.setTimeZone(&tz_);
     sleepTimeoutEditView_.setSleepTimeout(&sleep_);
+    homeView_.setRoster    (&roster_);
+    homeView_.setUserRoster(&userRoster_);
     catsListView_.setRoster(&roster_);
     catsListView_.setEditTarget(&catEditView_);
     catEditView_.setRoster(&roster_);
@@ -152,6 +153,7 @@ void LvglDisplay::buildScene() {
     screens_.registerView(&setupView_);
     screens_.registerView(&pairingView_);
     screens_.registerView(&resetPairConfirmView_);
+    screens_.registerView(&homeView_);
 #if defined(FEEDME_HAS_HOPPER)
     screens_.registerView(&hopperView_);
 #endif

@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { ApiError, type Cat, api, auth } from "../lib/api";
+import { ApiError, type Cat, type HomeInfo, api, auth } from "../lib/api";
 import { resolveCatColor, toCssHex } from "../lib/palette";
 
-// Dashboard / home. v1 just shows the cats with their colour swatches
-// and the household ID. Later iterations layer in:
+// Dashboard / home. v1 shows the home name + cats with their colour
+// swatches. Later iterations layer in:
 //   - last-fed times per cat (today's count)
 //   - quick-feed buttons
 //   - tiny daily-feed sparkline
 //   - notification status
 export default function HomePage() {
+  const [home, setHome] = useState<HomeInfo | null>(null);
   const [cats, setCats] = useState<Cat[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -16,8 +17,15 @@ export default function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        const { cats } = await api.catsList();
-        if (!cancelled) setCats(cats);
+        // Fire both calls in parallel — they're independent. Cats is
+        // the dominant payload; /me is a few-byte JSON.
+        const [meRes, catsRes] = await Promise.all([
+          api.me().catch(() => null),
+          api.catsList(),
+        ]);
+        if (cancelled) return;
+        if (meRes) setHome(meRes);
+        setCats(catsRes.cats);
       } catch (e) {
         if (cancelled) return;
         if (e instanceof ApiError && e.status === 401) {
@@ -31,10 +39,20 @@ export default function HomePage() {
     return () => { cancelled = true; };
   }, []);
 
+  // hid IS the home name (post-migration-0004). Use the live /me
+  // value when it lands, fall back to the cached auth.hid() so the
+  // page renders something during the brief request.
+  const displayName = home?.hid || auth.hid() || "Home";
+  const deviceCount = home?.deviceCount;
+
   return (
     <>
-      <h1>Home</h1>
-      <p className="muted">{auth.hid()}</p>
+      <h1>{displayName}</h1>
+      {deviceCount !== undefined && (
+        <p className="muted">
+          {deviceCount} device{deviceCount === 1 ? "" : "s"} paired
+        </p>
+      )}
       <div className="card">
         <h2>Cats</h2>
         {err && <p className="error">{err}</p>}

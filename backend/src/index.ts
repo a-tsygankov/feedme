@@ -81,6 +81,39 @@ const parseSlotPath = (pathname: string, collection: string): number | null => {
   return n;
 };
 
+// Translate a firmware-supplied device id (its self-generated `hid`,
+// e.g. feedme-a8b3c1d4e5f6) into the home id (households.hid =
+// user-chosen home name) it's been claimed into. Falls back to the
+// raw device id when no claim exists — preserves single-device legacy
+// behaviour for devices created before migration 0004 (the seed in
+// that migration registers each existing household as its own
+// device, so the lookup hits and returns the same value).
+//
+// Used by /api/feed, /api/state, /api/history — the firmware-facing
+// endpoints that don't go through bearer-token auth.
+async function resolveDeviceHome(env: Env, deviceId: string): Promise<string> {
+  const row = await env.DB.prepare(
+    "SELECT home_hid FROM devices WHERE device_id = ?",
+  ).bind(deviceId).first<{ home_hid: string }>();
+  return row?.home_hid ?? deviceId;
+}
+
+// Validation for user-chosen home names. Trim, cap, allow common
+// printable characters. The hid lives in URLs, JSON bodies, and the
+// SQLite primary key — so we forbid anything that needs special
+// escaping (control chars, newlines). Spaces are fine; users will
+// type "Smith Family" and we keep it as-is.
+function validateHomeName(raw: string | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length < 1 || trimmed.length > 64) return null;
+  // Reject control chars (0x00-0x1F, 0x7F) — covers tab, newline,
+  // null, etc. Everything else (letters, digits, spaces, punct,
+  // unicode) is fine.
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) return null;
+  return trimmed;
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -101,8 +134,12 @@ export default {
     // below, all bearer-token gated.
 
     if (url.pathname === "/api/state" && req.method === "GET") {
-      const hid = url.searchParams.get("hid");
-      if (!hid) return json({ error: "hid required" }, { status: 400 });
+      const deviceHid = url.searchParams.get("hid");
+      if (!deviceHid) return json({ error: "hid required" }, { status: 400 });
+      // Firmware sends its own device id; translate to the home it
+      // was claimed into so the events lookup hits the right rows.
+      // Falls back to the raw value for unclaimed devices.
+      const hid = await resolveDeviceHome(env, deviceHid);
       const cat = url.searchParams.get("cat") ?? "primary";
       const tzOffsetMinRaw = url.searchParams.get("tzOffset");
       const tzOffsetMin = tzOffsetMinRaw !== null && !isNaN(Number(tzOffsetMinRaw))
@@ -139,6 +176,7 @@ export default {
       if (!body?.hid || !body?.by) {
         return json({ error: "hid and by required" }, { status: 400 });
       }
+      const hid = await resolveDeviceHome(env, body.hid);
       const ts = Math.floor(Date.now() / 1000);
       const type = body.type ?? "feed";
       const cat = body.cat ?? "primary";
@@ -147,15 +185,16 @@ export default {
         "INSERT OR IGNORE INTO events (hid, ts, type, by, note, cat, event_id) " +
           "VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-        .bind(body.hid, ts, type, body.by, body.note ?? null, cat, eventId)
+        .bind(hid, ts, type, body.by, body.note ?? null, cat, eventId)
         .run();
       return json({ ok: true, ts, type, by: body.by, cat, eventId });
     }
 
     if (url.pathname === "/api/history" && req.method === "GET") {
-      const hid = url.searchParams.get("hid");
+      const deviceHid = url.searchParams.get("hid");
       const n = Math.min(Number(url.searchParams.get("n") ?? 5), 50);
-      if (!hid) return json({ error: "hid required" }, { status: 400 });
+      if (!deviceHid) return json({ error: "hid required" }, { status: 400 });
+      const hid = await resolveDeviceHome(env, deviceHid);
       const cat = url.searchParams.get("cat");
 
       const stmt = cat
@@ -173,54 +212,123 @@ export default {
     // ── Web/phone-app auth ────────────────────────────────────────
 
     // POST /api/auth/exists { hid } → { exists: boolean }
-    // Used by the login screen to decide between "enter PIN" and
-    // "set up new household".
+    // Probes whether a home with this name (= hid post-migration-0004)
+    // already exists. Webapp uses it to decide between "Create" and
+    // "Log in" UI states.
     if (url.pathname === "/api/auth/exists" && req.method === "POST") {
       const body = (await req.json().catch(() => null)) as { hid?: string } | null;
-      if (!body?.hid) return json({ error: "hid required" }, { status: 400 });
+      const hid = validateHomeName(body?.hid);
+      if (!hid) return json({ error: "valid hid required" }, { status: 400 });
       const row = await env.DB.prepare(
         "SELECT 1 AS x FROM households WHERE hid = ?",
-      ).bind(body.hid).first<{ x: number }>();
+      ).bind(hid).first<{ x: number }>();
       return json({ exists: !!row });
     }
 
-    // POST /api/auth/setup { hid, pin } → { token } (issues a session)
-    // 409 if the household already exists — call /api/auth/login instead.
+    // POST /api/auth/setup { hid, pin, deviceId? } → { token, hid }
+    // Creates a NEW home. `hid` is the user-chosen home name (the
+    // unique identifier — see migration 0004). `deviceId` is an
+    // optional firmware id to claim into this home immediately, so
+    // the QR-scan flow is one round-trip from "create" to "device
+    // events flow into my home".
+    //
+    // 400 — hid invalid (empty / too long / control chars) or pin <4
+    // 409 — name already taken
+    // 200 — { token, hid }; auth.set on the client + navigate /
     if (url.pathname === "/api/auth/setup" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { hid?: string; pin?: string } | null;
-      if (!body?.hid || !body?.pin) return json({ error: "hid and pin required" }, { status: 400 });
-      if (body.pin.length < 4) return json({ error: "pin too short (min 4)" }, { status: 400 });
+      const body = (await req.json().catch(() => null)) as
+        { hid?: string; pin?: string; deviceId?: string } | null;
+      const hid = validateHomeName(body?.hid);
+      if (!hid) return json({ error: "valid home name required (1-64 chars)" }, { status: 400 });
+      if (!body?.pin || body.pin.length < 4) {
+        return json({ error: "pin too short (min 4)" }, { status: 400 });
+      }
 
       const existing = await env.DB.prepare(
         "SELECT 1 AS x FROM households WHERE hid = ?",
-      ).bind(body.hid).first<{ x: number }>();
-      if (existing) return json({ error: "household exists — log in" }, { status: 409 });
+      ).bind(hid).first<{ x: number }>();
+      if (existing) return json({ error: "home name taken" }, { status: 409 });
 
-      const { salt, hash } = await hashPin(body.pin);
-      await env.DB.prepare(
-        "INSERT INTO households (hid, pin_salt, pin_hash, created_at) VALUES (?, ?, ?, ?)",
-      ).bind(body.hid, salt, hash, Math.floor(Date.now() / 1000)).run();
+      try {
+        const { salt, hash } = await hashPin(body.pin);
+        const now = Math.floor(Date.now() / 1000);
+        // We still write to `name` for forward-compat; current code
+        // displays hid (= name) but the column lives on for now.
+        await env.DB.prepare(
+          "INSERT INTO households (hid, pin_salt, pin_hash, created_at, name) VALUES (?, ?, ?, ?, ?)",
+        ).bind(hid, salt, hash, now, hid).run();
 
-      const token = await issueToken(body.hid, resolveSecret(env));
-      return json({ token, hid: body.hid });
+        // Claim the device that scanned the QR, if one was passed.
+        if (body.deviceId && typeof body.deviceId === "string") {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO devices (device_id, home_hid, joined_at) VALUES (?, ?, ?)",
+          ).bind(body.deviceId, hid, now).run();
+          console.log(`[auth] setup '${hid}' claimed device '${body.deviceId}'`);
+        } else {
+          console.log(`[auth] setup '${hid}' (no device to claim)`);
+        }
+      } catch (e) {
+        // Surface the underlying error so the client can show
+        // something useful instead of a generic 500. Most likely
+        // cause: migrations 0003/0004 not applied (missing column /
+        // missing table). Reading e.message is safe — it's a string
+        // describing the SQLite or D1 error.
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[auth] setup '${hid}' INSERT failed: ${msg}`);
+        return json({ error: `setup failed: ${msg}` }, { status: 500 });
+      }
+
+      const token = await issueToken(hid, resolveSecret(env));
+      return json({ token, hid });
     }
 
-    // POST /api/auth/login { hid, pin } → { token }
-    // 404 if household doesn't exist, 401 if PIN wrong.
+    // POST /api/auth/login { hid, pin, deviceId? } → { token, hid }
+    // Authenticates against an EXISTING home. `hid` = home name.
+    // `deviceId` is an optional firmware id to claim — used when a
+    // newly-paired device's QR sends the user here ("I already have
+    // a home; this device should join it").
+    //
+    // 400 — hid invalid or pin missing
+    // 404 — no such home
+    // 401 — wrong pin
+    // 200 — { token, hid } + side effect: device claimed
     if (url.pathname === "/api/auth/login" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as { hid?: string; pin?: string } | null;
-      if (!body?.hid || !body?.pin) return json({ error: "hid and pin required" }, { status: 400 });
+      const body = (await req.json().catch(() => null)) as
+        { hid?: string; pin?: string; deviceId?: string } | null;
+      const hid = validateHomeName(body?.hid);
+      if (!hid || !body?.pin) {
+        return json({ error: "hid and pin required" }, { status: 400 });
+      }
 
       const row = await env.DB.prepare(
         "SELECT pin_salt, pin_hash FROM households WHERE hid = ?",
-      ).bind(body.hid).first<{ pin_salt: string; pin_hash: string }>();
-      if (!row) return json({ error: "household not found" }, { status: 404 });
+      ).bind(hid).first<{ pin_salt: string; pin_hash: string }>();
+      if (!row) return json({ error: "no such home" }, { status: 404 });
 
       const ok = await verifyPin(body.pin, row.pin_salt, row.pin_hash);
       if (!ok) return json({ error: "wrong PIN" }, { status: 401 });
 
-      const token = await issueToken(body.hid, resolveSecret(env));
-      return json({ token, hid: body.hid });
+      // Optional device claim. We use INSERT OR REPLACE so re-claiming
+      // an already-paired device just updates the joined_at timestamp
+      // (and atomically moves it to a different home if the user
+      // signed in elsewhere).
+      if (body.deviceId && typeof body.deviceId === "string") {
+        try {
+          await env.DB.prepare(
+            "INSERT OR REPLACE INTO devices (device_id, home_hid, joined_at) VALUES (?, ?, ?)",
+          ).bind(body.deviceId, hid, Math.floor(Date.now() / 1000)).run();
+          console.log(`[auth] login '${hid}' claimed device '${body.deviceId}'`);
+        } catch (e) {
+          // Don't fail the login on a claim-write error; just log.
+          // The user will see they're signed in, and the device can
+          // re-claim on the next QR scan. Most likely cause: missing
+          // devices table → migration 0004 not applied.
+          console.error(`[auth] device claim failed: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+
+      const token = await issueToken(hid, resolveSecret(env));
+      return json({ token, hid });
     }
 
     // ── Web/phone-app authenticated routes ────────────────────────
@@ -232,6 +340,28 @@ export default {
       if (!authed) return json({ error: "unauthorized" }, { status: 401 });
       return null;
     };
+
+    // GET /api/auth/me → { hid, created_at, deviceCount }
+    // Returns the signed-in home's metadata: the name (= hid post-
+    // migration-0004), creation time, and how many devices have
+    // claimed into this home. Used by HomePage / SettingsPage so
+    // they don't have to piggy-back on cats/users responses just to
+    // pick up the display name. Auth required.
+    if (url.pathname === "/api/auth/me" && req.method === "GET") {
+      const denied = requireAuth(); if (denied) return denied;
+      const row = await env.DB.prepare(
+        "SELECT hid, created_at FROM households WHERE hid = ?",
+      ).bind(authed!.hid).first<{ hid: string; created_at: number }>();
+      if (!row) return json({ error: "no such home" }, { status: 404 });
+      const devCountRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM devices WHERE home_hid = ?",
+      ).bind(authed!.hid).first<{ n: number }>();
+      return json({
+        hid: row.hid,
+        created_at: row.created_at,
+        deviceCount: devCountRow?.n ?? 0,
+      });
+    }
 
     // DELETE /api/auth/household — "Forget this household". Wipes the
     // households row + every per-household record (cats, users) the
@@ -252,8 +382,9 @@ export default {
       // free-tier so we do them as separate prepares.
       await env.DB.prepare("DELETE FROM cats        WHERE hid = ?").bind(hid).run();
       await env.DB.prepare("DELETE FROM users       WHERE hid = ?").bind(hid).run();
+      await env.DB.prepare("DELETE FROM devices     WHERE home_hid = ?").bind(hid).run();
       await env.DB.prepare("DELETE FROM households  WHERE hid = ?").bind(hid).run();
-      console.log(`[auth] forgot household '${hid}'`);
+      console.log(`[auth] forgot home '${hid}'`);
       return json({ ok: true, hid });
     }
 
