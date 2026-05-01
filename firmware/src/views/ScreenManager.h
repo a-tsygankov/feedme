@@ -18,6 +18,15 @@ class ScreenManager {
 public:
     static constexpr int MAX_VIEWS = 24;  // 21 today w/ HOPPER flag — headroom
 
+    // Drop input events that arrive within this window after a screen
+    // transition. Catches the case where a single press (or a quick
+    // sequence of bouncy ones) ricochets into the destination view's
+    // handler — e.g. press to enter Feed, the same press carries over
+    // and skips FeedConfirm to whatever Press triggers next. 200 ms is
+    // shorter than a deliberate user re-press but plenty of headroom
+    // for any transition / debounce overlap.
+    static constexpr uint32_t TRANSITION_COOLDOWN_MS = 200;
+
     void begin(lv_obj_t* parent);
     void registerView(IView* view);  // call once per view in any order
     void transition(const char* name);  // by IView::name()
@@ -31,6 +40,7 @@ private:
     int      viewCount_ = 0;
     IView*   current_   = nullptr;
     lv_obj_t* parent_   = nullptr;
+    uint32_t lastTransitionMs_ = 0;
 
     IView* find(const char* name) const;
 };
