@@ -5,8 +5,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:apply:local": "wrangler d1 execute feedme --local --file=./schema.sql",
-    "db:apply:remote": "wrangler d1 execute feedme --remote --file=./schema.sql"
+    "db:apply:local":     "wrangler d1 execute feedme --local  --file=./schema.sql",
+    "db:apply:remote":    "wrangler d1 execute feedme --remote --file=./schema.sql",
+    "db:migrate:0001:local":  "wrangler d1 execute feedme --local  --file=./migrations/0001_legacy_event_cols.sql",
+    "db:migrate:0001:remote": "wrangler d1 execute feedme --remote --file=./migrations/0001_legacy_event_cols.sql",
+    "db:migrate:0002:local":  "wrangler d1 execute feedme --local  --file=./migrations/0002_webapp_tables.sql",
+    "db:migrate:0002:remote": "wrangler d1 execute feedme --remote --file=./migrations/0002_webapp_tables.sql"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
