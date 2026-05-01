@@ -1,5 +1,6 @@
 #include "views/MenuView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <math.h>
@@ -80,6 +81,8 @@ void MenuView::build(lv_obj_t* parent) {
         lv_label_set_text(glyphLabels_[i], kGlyphs[i]);
         lv_obj_center(glyphLabels_[i]);
     }
+
+    addBackHint(root_);   // ◀ hold = back to idle
 }
 
 void MenuView::applySelection() {

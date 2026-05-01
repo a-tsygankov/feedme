@@ -1,5 +1,6 @@
 #include "views/QuietView.h"
 
+#include "views/LabelHelpers.h"
 #include "views/Theme.h"
 
 #include <math.h>
@@ -102,6 +103,8 @@ void QuietView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_font(statusLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(statusLbl_, "");
     lv_obj_align(statusLbl_, LV_ALIGN_BOTTOM_MID, 0, -22);
+
+    addBackHint(root_);
 }
 
 void QuietView::applyEnabledStyles() {
