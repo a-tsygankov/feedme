@@ -64,7 +64,7 @@
 |---|---|---|---|
 | Q1 | **UUIDs on cats and users.** Add `uuid TEXT` (16-hex) to both tables; backfill via `randomblob(16)` for existing rows. `slot_id` stays as per-device display ordering. Sync wire format keys on `uuid`. | Without UUIDs, two unpaired devices that each create slot 0 lose one cat on first sync. Cheap to add now; painful to bolt on later. | Migrating later requires re-deduping any existing collisions by hand. |
 | Q2 | **Schedule embedded in Cat.** No separate `cat_schedules` table — slot hours stay as columns / array on the cat row. | Cat row's `updated_at` bumps on any field change including schedule. Saves a join + simplifies merge. | Field-level conflicts on cats stay coarse (whole-row LWW). Same coarseness as Q1 covers. |
-| Q3 | **3-tier sleep + sync at sleep-entry AND wake-entry.** Active → display-sleep (LCD off, CPU on) → light-sleep (~1 mA, wakes <1 ms on encoder/touch). At each sleep transition AND each wake transition: if `now - lastSyncAt > syncIntervalSec`, kick a sync (show Syncing screen, hold transition until done/fail). No RTC timer wake-up. | Deep sleep with input wake isn't possible on this board (encoder pins 41/42/45 are outside the ESP32-S3 RTC GPIO range 0-21). Light sleep gives ~50× power savings over today and keeps the knob alive. Sync at sleep-entry covers "I just walked away"; sync at wake-entry covers "I just came back" so a long-idle device doesn't show stale data the moment the user picks it up. | A battery variant could later layer deep-sleep timer-wake on top for the periodic-sync path; not needed for USB-powered v1. |
+| Q3 | **3-tier sleep + sync only at sleep-entry.** Active → display-sleep (LCD off, CPU on) → light-sleep (~1 mA, wakes <1 ms on encoder/touch). At each sleep transition: if `now - lastSyncAt > syncIntervalSec`, kick a sync (show Syncing screen, hold the sleep transition until sync completes or fails). **No wake-entry sync; no RTC timer wake.** | Deep sleep with input wake isn't possible on this board (encoder pins 41/42/45 are outside the ESP32-S3 RTC GPIO range 0-21). Light sleep gives ~50× power savings over today and keeps the knob alive. Pre-sleep sync ensures the freshest local state is always pushed before the device goes inert. | **Known freshness gap**: a device that's been asleep for days shows whatever state it had at sleep-entry until the *next* sleep-entry, even if the user wakes it and looks at the screen first. Mitigation: Manual Sync from H menu when freshness matters; per-device upgrade later if the gap proves annoying. |
 | Q4 | **Short-poll on `GET /api/pair/check`** every 15 s, 3-min total. Server returns the row's current state; client drives cadence. No long-polling, no Durable Object. | Stateless serverless fits Workers' execution model; testing is straightforward. Long-polling would cut median pair time by ~7.5 s — not worth the DO dependency. | Migration to long-poll is a server-only change; client cadence stays the same. |
 | Q5 | **Random 16-hex device ID after Reset.** `feedme-{16 hex chars from esp_random()}`. Existing devices keep their MAC-derived id forever for back-compat (the legacy-claim path covers them). | Stays close to current naming; full UUIDv4 (36 chars) bloats URLs and NVS for no real benefit at this scale. | None — collision probability of 16-hex over our population is effectively zero. |
 | Q6 | **Ring buffer of 100 sync logs per home.** After-insert prune: `DELETE WHERE id NOT IN (SELECT id FROM sync_logs WHERE home_hid=? ORDER BY ts DESC LIMIT 100)`. | ~1 KB × 100 = 100 KB / home — well within D1 free tier. Surfaces the most recent useful history, doesn't grow unbounded. | Trivial to bump the limit later if users want longer history. |
@@ -207,8 +207,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uuid ON users(uuid);
 |---|---|---|
 | 0005 | `0005_entity_timestamps.sql` — `ALTER TABLE … ADD COLUMN created_at, updated_at, is_deleted` for households, cats, users, devices. Backfill from `created_at`/`deleted_at` where present. | ALTER ADD: errors with "duplicate column" if re-run. Caught by deploy script. |
 | 0006 | `0006_sync_tables.sql` — `pending_pairings`, `pairings`, `sync_logs`. All `CREATE TABLE IF NOT EXISTS`. | Yes |
-| 0007 | `0007_entity_uuids.sql` (only if Q1 "yes") — uuid column + backfill + unique index. | `ADD COLUMN` errors on duplicate; UPDATE is idempotent; CREATE INDEX IF NOT EXISTS. |
+| 0007 | `0007_entity_uuids.sql` (Q1 yes) — uuid column + backfill + unique index. | `ADD COLUMN` errors on duplicate; UPDATE is idempotent; CREATE INDEX IF NOT EXISTS. |
 | 0008 | `0008_devices_evolution.sql` — drop the old `joined_at`-only model; rename `home_hid` to keep backward-compat with existing code paths. (Could be folded into 0005; keep separate for clarity.) | Yes |
+| 0009 | `0009_pin_optional.sql` — `ALTER TABLE households` to allow `pin_salt` / `pin_hash` NULL (transparent accounts). | Already nullable in SQLite if not declared `NOT NULL` originally; current schema declares them `NOT NULL`. Migration drops the constraint via `CREATE TABLE … AS SELECT` rebuild. **Not idempotent — runs once per DB.** |
+| 0010 | `0010_login_qr_tokens.sql` — `CREATE TABLE login_qr_tokens` for one-shot device-to-web login codes (60 s TTL). | Yes |
 
 ---
 
@@ -358,6 +360,126 @@ interface AuthInfo {
 | `DELETE /api/pair/{deviceId}` (unpair from webapp settings) | UserToken | overload — same path, different token type |
 | `GET /api/dashboard/cats` etc | UserToken | (existing) |
 | `POST /api/feed`, `/api/state` | none (legacy) | tighten in dev-23 |
+| `POST /api/auth/quick-setup { deviceId }` | none | NEW — transparent home; see §6.3 |
+| `POST /api/auth/login-token-create` | DeviceToken | NEW — short-lived QR login token; see §6.4 |
+| `POST /api/auth/login-qr { deviceId, token }` | none | NEW — exchange QR token for UserToken |
+| `POST /api/auth/set-pin { pin }` | UserToken | NEW — upgrade transparent → PIN-protected |
+
+### 6.3 Transparent accounts (no PIN, no chosen name)
+
+A *transparent* home is one with `pin_salt = pin_hash = NULL` — no
+PIN, no PIN-protected login. The hid is auto-generated (`home-{8hex}`).
+Anyone with possession of (or knowledge of) a paired device can sign
+in to it. Designed for the user who wants the device working in 30
+seconds without picking a name or memorising a PIN.
+
+**Lifecycle**:
+
+1. **Creation** (`POST /api/auth/quick-setup { deviceId }`):
+   - Server generates `hid = "home-" + 8 random hex`.
+   - Inserts `households (hid, pin_salt=NULL, pin_hash=NULL, …)`.
+   - Atomically claims the device into the new home.
+   - Issues a UserToken AND sets a session cookie (see §6.5).
+   - Returns `{ token, hid }`.
+2. **Re-login** (cookie OR QR): see §6.4 for QR; cookie auto-renews.
+3. **Upgrade** (`POST /api/auth/set-pin { pin }` with auth): turns
+   the home into a regular PIN-protected account. After upgrade, the
+   QR-login path still works for already-paired devices but the
+   `/login` page now requires the PIN.
+4. **Demotion** (drop the PIN): not supported. PIN-protected → PIN-protected forever.
+
+The webapp Settings → "Set a PIN" entry is the canonical upgrade
+path. Banner on the dashboard for transparent accounts ("Add a PIN
+for security →") is a v2 nudge.
+
+### 6.4 Login QR (device-side login screen)
+
+A *separate* QR from the pairing one. Shown by an already-paired
+device when the user picks **H menu → Login QR**. Lets a phone log
+in to the home that owns this device — useful when the user opens
+the webapp on a device with no cookie / cleared storage.
+
+Two endpoints:
+
+```
+POST /api/auth/login-token-create        (auth: DeviceToken)
+  body: {}
+  → { token: "xxxx-xxxx-xxxx-xxxx", expiresAt: <epoch+60s> }
+
+POST /api/auth/login-qr                  (auth: none)
+  body: { deviceId, token }
+  → { userToken, hid } + Set-Cookie session
+```
+
+Server keeps a `login_qr_tokens` table (TTL = 60 s, one-time use):
+
+```sql
+CREATE TABLE IF NOT EXISTS login_qr_tokens (
+  token       TEXT PRIMARY KEY,    -- 16-char random
+  device_id   TEXT NOT NULL,
+  home_hid    TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER              -- NULL until /api/auth/login-qr called
+);
+```
+
+QR encodes:
+
+```
+https://feedme-webapp.pages.dev/qr-login?device=feedme-XXXX&token=YYYY
+```
+
+A new `/qr-login` route on the webapp parses both query params, calls
+`POST /api/auth/login-qr`, sets the cookie + localStorage token on
+success, navigates to `/`. Failure (expired / consumed token) shows
+an error with "Generate a new QR on the device" instruction.
+
+### 6.5 Cookie-based session
+
+In addition to the `Authorization: Bearer <token>` header (kept for
+back-compat), all auth endpoints (`/login`, `/setup`, `/quick-setup`,
+`/login-qr`, `/pair/confirm`) **also** set a session cookie:
+
+```
+Set-Cookie: feedme.session=<UserToken>;
+            HttpOnly; Secure; SameSite=Lax; Path=/;
+            Max-Age=2592000
+```
+
+`HttpOnly` so client-side JS can't read the token (XSS hardening).
+The cookie is sent automatically with every request to `*.pages.dev`
+(same-origin, since the Pages Function proxies `/api/*` to the
+Worker). `authFromRequest` reads the cookie first, falls back to the
+Authorization header.
+
+For transparent accounts the cookie is the **only** way to stay
+signed in — there's no PIN to re-enter. Cookie max-age of 30 days
+matches the existing UserToken expiry; re-issued on every authed
+request to keep active sessions warm.
+
+CORS: Pages-side proxy is same-origin so no `Access-Control-Allow-Credentials`
+gymnastics needed. Direct calls to the Worker (e.g. from local
+dev with `VITE_API_BASE`) need:
+
+```ts
+fetch(url, { credentials: "include", … })
+```
+
+and the Worker must set `Access-Control-Allow-Credentials: true` +
+specific origin in the CORS preflight response (no wildcard `*`).
+
+### 6.6 Endpoint matrix update
+
+Adding the new flows:
+
+| Endpoint | Token in | Token out | Cookie out | Use case |
+|---|---|---|---|---|
+| `POST /api/auth/quick-setup` | none | UserToken | yes | Transparent account creation |
+| `POST /api/auth/login-token-create` | DeviceToken | (QR token) | no | Device asks server for a one-shot login token |
+| `POST /api/auth/login-qr` | none | UserToken | yes | Phone exchanges QR token for session |
+| `POST /api/auth/set-pin` | UserToken | (no rotation) | yes (refreshed) | Upgrade transparent → PIN-protected |
+| `POST /api/auth/login`, `/setup` | none | UserToken | yes | (existing — now also sets cookie) |
+| `POST /api/pair/confirm` | UserToken | DeviceToken | (no) | (existing — DeviceToken returned in body, not cookie) |
 
 ---
 
@@ -483,6 +605,7 @@ void setHomeName(const char*);
 | `SyncingView` | "Syncing..." with running dots; long-tap → cancel | LongPress / LongTouch |
 | `SyncCancelledView` | "Cancelled" splash, 1 s, → idle | n/a |
 | `SyncLogView` (optional) | last-N sync result list | rotate / tap |
+| `LoginQrView` | One-shot login QR for already-paired devices (see §6.4); calls `/api/auth/login-token-create`, displays `https://…/qr-login?device=X&token=Y` for 60 s, dismisses on long-tap or token expiry | LongPress / LongTouch |
 
 Existing `PairingView` (the QR-shown one) gets renamed to `PairingQrView`
 to disambiguate; the old name keeps building under an alias.
@@ -493,15 +616,14 @@ A new `application/SyncService` owns:
 
 - **State machine**: Idle ↔ Syncing ↔ {Done, Failed, Cancelled}
 - **Trigger sources**:
-  - Manual (H menu → Sync entry → calls `kickSync()`)
-  - **Sleep-entry gate** (PowerManager about to dim → calls
-    `maybeKickSync()` which compares `now - lastSyncAt` vs
-    `syncIntervalSec` and only kicks if the threshold is exceeded;
-    transition to sleep is held until the sync completes or fails)
-  - **Wake-entry gate** (light-sleep wake → same `maybeKickSync()`
-    check; runs in the background while the wake-up view renders so
-    the user gets the existing UI immediately, with a fresh state
-    a moment later)
+  - Manual (H menu → Sync entry → calls `kickSync()` — bypasses the
+    time gate, always syncs)
+  - **Sleep-entry gate** (PowerManager about to drop the LCD or
+    enter light-sleep → calls `maybeKickSync()` which compares
+    `now - lastSyncAt` vs `syncIntervalSec` and only kicks if the
+    threshold is exceeded; the sleep transition is held until the
+    sync completes or fails). **This is the sole automatic sync
+    trigger** — no wake-entry sync, no RTC timer wake.
   - Initial after pair (`bootSync()` — bypasses the time gate, always
     syncs)
 - **HTTP**: builds the SyncRequest, POSTs to `/api/sync`, parses
@@ -533,19 +655,21 @@ passes. Only Pouring (existing 1.2 s anim) + Syncing (1 s) + Pairing
 
 ### 8.7 H menu update
 
-`HomeView::ITEM_COUNT` 4 → 5; insert "Sync" between Users and Pair:
+`HomeView::ITEM_COUNT` 4 → 6; insert "Sync" + "Login QR" between
+Users and Pair:
 
 ```
 Cats
 Users
-Sync     ← NEW (paired only; greyed out + tap-to-info when unpaired)
+Sync       ← NEW (paired only; greyed when unpaired)
+Login QR   ← NEW (paired only; greyed when unpaired)
 Pair
 Reset
 ```
 
-When `!isPaired`, the Sync row is rendered at 50% opacity and tapping
-it transitions to a "Pair this device first" splash that auto-returns
-after 1.5 s.
+When `!isPaired`, the Sync and Login-QR rows are rendered at 50%
+opacity and tapping them transitions to a "Pair this device first"
+splash that auto-returns after 1.5 s.
 
 ---
 
@@ -680,12 +804,25 @@ Suggested order of PRs, each independently shippable.
 - [ ] Firmware Cat / User uuid generation on add()
 
 ### Phase E — production polish
-- [ ] Background sync timer (4h default)
+- [ ] Sleep-entry sync gate wiring
 - [ ] Settings → Sync interval
 - [ ] Migration 0008 (legacy-claim endpoint + sunset)
 
-Total estimated firmware churn: ~1500 LOC. Backend: ~800 LOC.
-Webapp: ~600 LOC. Plus ~5 migrations, ~10 view tests.
+### Phase F — transparent accounts + login QR + cookies
+- [ ] Migration 0009 (pin nullable)
+- [ ] Migration 0010 (login_qr_tokens)
+- [ ] Backend `POST /api/auth/quick-setup` (transparent home + claim device)
+- [ ] Backend `POST /api/auth/login-token-create` + `POST /api/auth/login-qr`
+- [ ] Backend `POST /api/auth/set-pin` (transparent → PIN-protected upgrade)
+- [ ] Backend cookie-set on all auth responses; `authFromRequest` reads cookie OR header
+- [ ] Webapp `/qr-login` route (parses URL, calls `/api/auth/login-qr`)
+- [ ] Webapp Settings → "Set a PIN" entry
+- [ ] Webapp dashboard banner for transparent homes ("Add a PIN for security →")
+- [ ] Firmware `LoginQrView` + H-menu "Login QR" entry (paired only)
+- [ ] Webapp `/setup` adds "Quick start (no PIN)" button alongside "Create new home"
+
+Total estimated firmware churn: ~1700 LOC. Backend: ~1100 LOC.
+Webapp: ~800 LOC. Plus 7 migrations, ~12 view tests.
 
 ---
 
@@ -725,6 +862,9 @@ When this lands, confirm by visual inspection on a paired device:
 
 ---
 
-*End of handoff. All Q1–Q10 decisions in §2 are locked; implementation
-proceeds against this spec on a fresh `dev-22` branch starting with
-Phase A (migrations + auth scaffolding).*
+*End of handoff. All Q1–Q10 decisions in §2 are locked. Phase F
+adds transparent accounts, device-side Login QR, and HTTP-only
+session cookies (§6.3–6.6). Implementation proceeds against this
+spec on `dev-22` starting with Phase A (migrations + auth scaffolding);
+Phase F can land in parallel with Phase B/C/D since the new endpoints
+don't depend on sync working.*
