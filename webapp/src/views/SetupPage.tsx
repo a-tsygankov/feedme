@@ -74,7 +74,16 @@ export default function SetupPage() {
     try {
       const { token, hid } = await api.setup(name.trim(), pin, deviceId);
       auth.set(token, hid);
-      navigate("/", { replace: true });
+      // Carry the deviceId through to the dashboard so the
+      // confirm-pairing banner appears. Phase A pair flow: the
+      // device is in its "Pairing..." screen polling /api/pair/check;
+      // the user clicks Confirm on the dashboard banner; that sends
+      // POST /api/pair/confirm and the device picks up its
+      // DeviceToken on the next poll.
+      const next = deviceId
+        ? `/?pair=${encodeURIComponent(deviceId)}`
+        : "/";
+      navigate(next, { replace: true });
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         // Name taken — bounce to login with name + device prefilled

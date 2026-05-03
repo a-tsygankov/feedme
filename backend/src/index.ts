@@ -2,6 +2,7 @@ import {
   authFromRequest,
   hashPin,
   issueToken,
+  requireType,
   verifyPin,
 } from "./auth";
 import {
@@ -16,6 +17,13 @@ import {
   postDashboardFeed,
 } from "./dashboard";
 import type { Env } from "./env";
+import {
+  deletePair,
+  getPairCheck,
+  postPairCancel,
+  postPairConfirm,
+  postPairStart,
+} from "./pair";
 import {
   createUser,
   deleteUser,
@@ -216,6 +224,24 @@ export default {
 
     // ── Web/phone-app auth ────────────────────────────────────────
 
+    // ── Pair lifecycle (Phase A — sync rework) ────────────────────
+    // Three unauthenticated endpoints that the device drives during
+    // its 3-min pairing window. The fourth (POST /api/pair/confirm)
+    // is auth-required and lives below the auth guard. See pair.ts
+    // for the full handshake sequence.
+
+    if (url.pathname === "/api/pair/start" && req.method === "POST") {
+      const body = await req.json().catch(() => null);
+      return postPairStart(env, body);
+    }
+    if (url.pathname === "/api/pair/check" && req.method === "GET") {
+      return getPairCheck(env, url);
+    }
+    if (url.pathname === "/api/pair/cancel" && req.method === "POST") {
+      const body = await req.json().catch(() => null);
+      return postPairCancel(env, body);
+    }
+
     // POST /api/auth/exists { hid } → { exists: boolean }
     // Probes whether a home with this name (= hid post-migration-0004)
     // already exists. Webapp uses it to decide between "Create" and
@@ -345,6 +371,32 @@ export default {
       if (!authed) return json({ error: "unauthorized" }, { status: 401 });
       return null;
     };
+
+    // POST /api/pair/confirm { deviceId } (UserToken)
+    // Webapp side of the pairing handshake. Creates the active pairings
+    // row, mints a DeviceToken for the device, and stashes it on the
+    // pending_pairings row so the device's next /api/pair/check returns
+    // confirmed + token. See pair.ts for the full state machine.
+    if (url.pathname === "/api/pair/confirm" && req.method === "POST") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      const body = await req.json().catch(() => null);
+      return postPairConfirm(env, userAuth, body, resolveSecret(env));
+    }
+
+    // DELETE /api/pair/<deviceId> (UserToken OR DeviceToken)
+    // "Forget device" from the webapp side or "Reset" from the device
+    // side, both unwind the active pairing and clear the legacy
+    // devices-table row. Authorisation is checked inside deletePair —
+    // a UserToken can only delete pairings in its own home, a
+    // DeviceToken can only delete its own deviceId.
+    {
+      const m = url.pathname.match(/^\/api\/pair\/([a-zA-Z0-9-]+)$/);
+      if (m && req.method === "DELETE") {
+        const denied = requireAuth(); if (denied) return denied;
+        return deletePair(env, authed!, m[1]);
+      }
+    }
 
     // GET /api/auth/me → { hid, created_at, deviceCount }
     // Returns the signed-in home's metadata: the name (= hid post-

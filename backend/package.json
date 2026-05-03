@@ -14,7 +14,11 @@
     "db:migrate:0003:local":  "wrangler d1 execute feedme --local  --file=./migrations/0003_household_name.sql",
     "db:migrate:0003:remote": "wrangler d1 execute feedme --remote --file=./migrations/0003_household_name.sql",
     "db:migrate:0004:local":  "wrangler d1 execute feedme --local  --file=./migrations/0004_devices.sql",
-    "db:migrate:0004:remote": "wrangler d1 execute feedme --remote --file=./migrations/0004_devices.sql"
+    "db:migrate:0004:remote": "wrangler d1 execute feedme --remote --file=./migrations/0004_devices.sql",
+    "db:migrate:0005:local":  "wrangler d1 execute feedme --local  --file=./migrations/0005_entity_timestamps.sql",
+    "db:migrate:0005:remote": "wrangler d1 execute feedme --remote --file=./migrations/0005_entity_timestamps.sql",
+    "db:migrate:0006:local":  "wrangler d1 execute feedme --local  --file=./migrations/0006_sync_tables.sql",
+    "db:migrate:0006:remote": "wrangler d1 execute feedme --remote --file=./migrations/0006_sync_tables.sql"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",

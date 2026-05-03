@@ -115,6 +115,21 @@ nav.tabs a.active {
   font-weight: 600;
 }
 
+/* ── Pair-confirm banner ─────────────────────────────────────────── */
+.card.pair-banner {
+  border: 1px solid var(--accent);
+  background: linear-gradient(180deg, var(--screen-bg) 0%, color-mix(in srgb, var(--accent) 8%, var(--screen-bg)) 100%);
+}
+.card.pair-banner h2 {
+  margin-top: 0;
+}
+.card.pair-banner code {
+  background: rgba(0,0,0,0.2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
 /* ── Dashboard ───────────────────────────────────────────────────── */
 .dash-cat-card {
   background: var(--screen-bg);
