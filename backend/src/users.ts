@@ -10,9 +10,11 @@ interface UserRow {
   slot_id: number;
   name: string;
   color: number;
+  uuid: string | null;
 }
 
 const userShape = (r: UserRow) => ({
+  uuid:   r.uuid ?? undefined,
   slotId: r.slot_id,
   name:   r.name,
   color:  r.color,
@@ -20,7 +22,7 @@ const userShape = (r: UserRow) => ({
 
 export async function listUsers(env: Env, hid: string): Promise<UserRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT slot_id, name, color FROM users
+    `SELECT slot_id, name, color, uuid FROM users
      WHERE hid = ? AND deleted_at IS NULL
      ORDER BY slot_id ASC`,
   ).bind(hid).all<UserRow>();
@@ -55,12 +57,15 @@ export async function createUser(env: Env, hid: string, body: unknown): Promise<
 
   const name  = (b.name ?? `User ${slotId}`).slice(0, 15);
   const color = b.color ?? 0;
+  // Phase D: mint a uuid at INSERT — see cats.ts createCat for
+  // the same rationale.
+  const uuid = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
   await env.DB.prepare(
-    "INSERT INTO users (hid, slot_id, name, color) VALUES (?, ?, ?, ?)",
-  ).bind(hid, slotId, name, color).run();
+    "INSERT INTO users (hid, slot_id, name, color, uuid) VALUES (?, ?, ?, ?, ?)",
+  ).bind(hid, slotId, name, color, uuid).run();
 
-  return jsonOk({ user: { slotId, name, color } });
+  return jsonOk({ user: { uuid, slotId, name, color } });
 }
 
 interface UpdateBody {
@@ -83,7 +88,7 @@ export async function updateUser(env: Env, hid: string, slotId: number, body: un
   if (res.meta.changes === 0) return jsonErr(404, "user not found");
 
   const row = await env.DB.prepare(
-    "SELECT slot_id, name, color FROM users WHERE hid = ? AND slot_id = ? AND deleted_at IS NULL",
+    "SELECT slot_id, name, color, uuid FROM users WHERE hid = ? AND slot_id = ? AND deleted_at IS NULL",
   ).bind(hid, slotId).first<UserRow>();
   if (!row) return jsonErr(404, "user vanished after update");
   return jsonOk({ user: userShape(row) });

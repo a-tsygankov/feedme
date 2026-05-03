@@ -109,6 +109,10 @@ std::string SyncService::buildSyncRequestBody() {
     for (int i = 0; i < cats_.count(); ++i) {
         const auto& c = cats_.at(i);
         auto o = catsArr.add<JsonObject>();
+        // Phase D: emit uuid only if we have one. Server falls back
+        // to (hid, slot_id) lookup when missing — happens for cats
+        // added locally that haven't completed a sync yet.
+        if (c.uuid[0] != '\0') o["uuid"] = static_cast<const char*>(c.uuid);
         o["slotId"]              = c.id;
         o["name"]                = static_cast<const char*>(c.name);
         o["color"]               = c.avatarColor;
@@ -128,6 +132,7 @@ std::string SyncService::buildSyncRequestBody() {
     for (int i = 0; i < users_.count(); ++i) {
         const auto& u = users_.at(i);
         auto o = usersArr.add<JsonObject>();
+        if (u.uuid[0] != '\0') o["uuid"] = static_cast<const char*>(u.uuid);
         o["slotId"]    = u.id;
         o["name"]      = static_cast<const char*>(u.name);
         o["color"]     = u.avatarColor;
@@ -151,21 +156,28 @@ bool SyncService::applySyncResponse(const std::string& body) {
         return false;
     }
 
-    // Replace local rosters with server-canonical state.
+    // Replace local rosters with server-canonical state. The server's
+    // response includes a uuid for every row (backfilled by migration
+    // 0008 for legacy rows; minted at INSERT time for new ones), so
+    // by the time we land here the device always learns each cat's
+    // canonical identity. Subsequent /api/sync requests then send
+    // the uuid back, which lets the server LWW-merge by stable id
+    // even across slot_id collisions.
     cats_.clear();
     JsonArray catsArr = doc["cats"];
     for (JsonObject o : catsArr) {
-        if (o["isDeleted"] | false) continue;   // skip tombstones (Phase C scope)
-        const uint8_t  slotId   = o["slotId"]              | 0;
-        const char*    name     = o["name"]                | "Cat";
-        const uint32_t color    = o["color"]               | 0;
-        const char*    slug     = o["slug"]                | "C2";
-        const int      portion  = o["defaultPortionG"]     | 40;
-        const int64_t  thresh   = o["hungryThresholdSec"]  | 18000;
-        const int64_t  createdAt = o["createdAt"]          | 0;
-        const int64_t  updatedAt = o["updatedAt"]          | 0;
+        if (o["isDeleted"] | false) continue;   // skip tombstones (Phase D defers send-side)
+        const uint8_t  slotId    = o["slotId"]              | 0;
+        const char*    name      = o["name"]                | "Cat";
+        const uint32_t color     = o["color"]               | 0;
+        const char*    slug      = o["slug"]                | "C2";
+        const int      portion   = o["defaultPortionG"]     | 40;
+        const int64_t  thresh    = o["hungryThresholdSec"]  | 18000;
+        const int64_t  createdAt = o["createdAt"]           | 0;
+        const int64_t  updatedAt = o["updatedAt"]           | 0;
+        const char*    uuid      = o["uuid"]                | static_cast<const char*>(nullptr);
         cats_.appendLoaded(slotId, name, slug, portion, thresh, color,
-                           createdAt, updatedAt);
+                           createdAt, updatedAt, uuid);
     }
 
     users_.clear();
@@ -177,10 +189,17 @@ bool SyncService::applySyncResponse(const std::string& body) {
         const uint32_t color     = o["color"]     | 0;
         const int64_t  createdAt = o["createdAt"] | 0;
         const int64_t  updatedAt = o["updatedAt"] | 0;
-        users_.appendLoaded(slotId, name, color, createdAt, updatedAt);
+        const char*    uuid      = o["uuid"]      | static_cast<const char*>(nullptr);
+        users_.appendLoaded(slotId, name, color, createdAt, updatedAt, uuid);
     }
 
     lastSyncAt_ = doc["now"] | 0;
+    // Force-dirty so main.cpp's tick-loop persists the freshly-arrived
+    // server state (especially the uuids) to NVS. Without this, the
+    // appendLoaded path leaves the rosters "clean" and a reboot would
+    // lose the uuids the server just taught us.
+    cats_.markDirty();
+    users_.markDirty();
     Serial.printf("[sync] applied: %d cats, %d users, lastSyncAt=%lld, conflicts=%d\n",
                   cats_.count(), users_.count(),
                   static_cast<long long>(lastSyncAt_),

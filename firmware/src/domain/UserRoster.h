@@ -13,8 +13,11 @@ namespace feedme::domain {
 // display-only and what currently stamps `by` on events.
 struct User {
     static constexpr int NAME_CAP = 16;
+    static constexpr int UUID_LEN = 32;
+    static constexpr int UUID_CAP = UUID_LEN + 1;
     uint8_t  id   = 0;
     char     name[NAME_CAP] = {0};
+    char     uuid[UUID_CAP] = {0};   // 32-hex; same Phase D semantics as Cat::uuid
     // 0xRRGGBB tint used for this user's name labels and per-user
     // accents (FedView "by" line, FeederPicker rows, UsersList rows).
     // Auto-assigned at add() / appendLoaded; persisted in NVS.
@@ -217,12 +220,15 @@ public:
         dirty_ = false;
     }
     void appendLoaded(uint8_t id, const char* name, uint32_t avatarColor = 0,
-                      int64_t createdAt = 0, int64_t updatedAt = 0) {
+                      int64_t createdAt = 0, int64_t updatedAt = 0,
+                      const char* uuid = nullptr) {
         if (count_ >= MAX_USERS) return;
         User& u = users_[count_];
         u.id = id;
         if (name) { strncpy(u.name, name, User::NAME_CAP - 1); u.name[User::NAME_CAP - 1] = '\0'; }
         else      { snprintf(u.name, User::NAME_CAP, "%s %d", DEFAULT_NAME, id); }
+        if (uuid) { strncpy(u.uuid, uuid, User::UUID_LEN); u.uuid[User::UUID_LEN] = '\0'; }
+        else      { u.uuid[0] = '\0'; }
         // 0 sentinel = "no stored color" → use round-robin default
         // (handles users from a pre-color era on first boot).
         u.avatarColor = (avatarColor != 0) ? avatarColor : autoUserColor(id);
@@ -232,6 +238,8 @@ public:
         if (id >= nextId_) nextId_ = id + 1;
     }
     void markClean() { dirty_ = false; }
+    // See CatRoster::markDirty() for the rationale.
+    void markDirty() { dirty_ = true; }
 
     void seedDefaultIfEmpty() { if (count_ == 0) add(); }
 

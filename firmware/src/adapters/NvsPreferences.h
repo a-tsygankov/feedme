@@ -94,6 +94,10 @@ public:
     void    setDeviceId   (const char* value) override;
     bool    getDeviceToken(char* buf, int bufLen) override;
     void    setDeviceToken(const char* value) override;
+    bool    getCatUuid (int slot, char* buf, int bufLen) override;
+    void    setCatUuid (int slot, const char* value) override;
+    bool    getUserUuid(int slot, char* buf, int bufLen) override;
+    void    setUserUuid(int slot, const char* value) override;
     bool    getHomeName(char* buf, int bufLen) override;
     void    setHomeName(const char* value) override;
     int64_t getLastSyncAt(int64_t defaultValue) override;

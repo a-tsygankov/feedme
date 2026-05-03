@@ -18,9 +18,11 @@ interface CatRow {
   slug: string;
   default_portion_g: number;
   hungry_threshold_sec: number;
+  uuid: string | null;
 }
 
 const catShape = (r: CatRow) => ({
+  uuid:               r.uuid ?? undefined,
   slotId:             r.slot_id,
   name:               r.name,
   color:              r.color,
@@ -31,7 +33,7 @@ const catShape = (r: CatRow) => ({
 
 export async function listCats(env: Env, hid: string): Promise<CatRow[]> {
   const { results } = await env.DB.prepare(
-    `SELECT slot_id, name, color, slug, default_portion_g, hungry_threshold_sec
+    `SELECT slot_id, name, color, slug, default_portion_g, hungry_threshold_sec, uuid
      FROM cats WHERE hid = ? AND deleted_at IS NULL
      ORDER BY slot_id ASC`,
   ).bind(hid).all<CatRow>();
@@ -75,15 +77,21 @@ export async function createCat(env: Env, hid: string, body: unknown): Promise<R
   const slug  = (b.slug  ?? DEFAULT_SLUG).slice(0, 3);
   const port  = b.defaultPortionG    ?? DEFAULT_PORTION_G;
   const thr   = b.hungryThresholdSec ?? DEFAULT_THRESHOLD_S;
+  // Phase D: mint a stable per-row uuid at INSERT time so the
+  // response can teach the client its identity. The unique index
+  // on cats.uuid prevents collisions if two webapp tabs both
+  // create concurrently — second loses with a SQLITE_CONSTRAINT
+  // (caller treats as a benign retry signal).
+  const uuid = crypto.randomUUID().replace(/-/g, "").toLowerCase();
 
   await env.DB.prepare(
     `INSERT INTO cats (hid, slot_id, name, color, slug,
-                       default_portion_g, hungry_threshold_sec)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(hid, slotId, name, color, slug, port, thr).run();
+                       default_portion_g, hungry_threshold_sec, uuid)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(hid, slotId, name, color, slug, port, thr, uuid).run();
 
   return jsonOk({
-    cat: { slotId, name, color, slug, defaultPortionG: port, hungryThresholdSec: thr },
+    cat: { uuid, slotId, name, color, slug, defaultPortionG: port, hungryThresholdSec: thr },
   });
 }
 
@@ -116,7 +124,7 @@ export async function updateCat(env: Env, hid: string, slotId: number, body: unk
 
   // Read back the updated row so the client can swap into local state.
   const row = await env.DB.prepare(
-    `SELECT slot_id, name, color, slug, default_portion_g, hungry_threshold_sec
+    `SELECT slot_id, name, color, slug, default_portion_g, hungry_threshold_sec, uuid
      FROM cats WHERE hid = ? AND slot_id = ? AND deleted_at IS NULL`,
   ).bind(hid, slotId).first<CatRow>();
   if (!row) return jsonErr(404, "cat vanished after update");
