@@ -61,13 +61,21 @@ public:
     void setDeviceToken(const char* token) { deviceToken_ = token ? token : ""; }
     void setHomeName   (const char* name)  { homeName_    = name ? name : ""; }
     void setLastSyncAt (int64_t ts)        { lastSyncAt_  = ts; }
+    // Phase E — per-home sync interval cached from each /api/sync
+    // response. Webapp's Settings → Sync card edits the canonical
+    // value; the device just round-trips whatever the server most
+    // recently sent. Default fallback is the same 4 h baked into
+    // backend's DEFAULT_SYNC_INTERVAL_SEC for fresh devices that
+    // haven't completed a sync yet.
+    void setSyncIntervalSec(int s)         { if (s > 0) syncIntervalSec_ = s; }
 
-    const std::string& deviceId()    const { return deviceId_; }
-    const std::string& deviceToken() const { return deviceToken_; }
-    const std::string& homeName()    const { return homeName_; }
-    int64_t            lastSyncAt()  const { return lastSyncAt_; }
-    const std::string& lastError()   const { return lastError_; }
-    bool               isPaired()    const { return !deviceToken_.empty(); }
+    const std::string& deviceId()         const { return deviceId_; }
+    const std::string& deviceToken()      const { return deviceToken_; }
+    const std::string& homeName()         const { return homeName_; }
+    int64_t            lastSyncAt()       const { return lastSyncAt_; }
+    int                syncIntervalSec()  const { return syncIntervalSec_; }
+    const std::string& lastError()        const { return lastError_; }
+    bool               isPaired()         const { return !deviceToken_.empty(); }
 
     // Cancellation. Set by PairingProgressView / SyncingView on long-tap.
     // The next pairCheck() / syncFull() returns its terminal state
@@ -94,6 +102,16 @@ public:
     // exit immediately regardless of the response.
     bool pairCancel();
 
+    // ── Phase F: Login QR ────────────────────────────────────────
+    // POST /api/auth/login-token-create (DeviceToken) — mints a
+    // single-use, 60-s token bound to this device's already-paired
+    // home. The caller (LoginQrView) reads loginToken_/loginTokenExpiresAt_
+    // after a true return and encodes them into a QR for a phone to
+    // scan. Returns false on auth/network/parse failure.
+    bool loginTokenCreate();
+    const std::string& loginToken()         const { return loginToken_; }
+    int64_t            loginTokenExpiresAt() const { return loginTokenExpiresAt_; }
+
     // ── Sync ─────────────────────────────────────────────────────
     // POST /api/sync (DeviceToken) — uploads the device's full
     // roster snapshot, applies the server's merged response back
@@ -111,6 +129,16 @@ public:
     // that decouples slot_id reuse from server-side dedup.
     bool syncFull();
 
+    // Phase E — gate-checked variant. Called by main.cpp's
+    // PowerManager at sleep-entry / wake-entry. Returns:
+    //   true   — gate triggered AND syncFull() succeeded
+    //   false  — gate didn't trigger (still recent), OR syncFull failed
+    // gateTriggered (out, optional) — distinguishes the two false cases.
+    // The caller only cares whether to show the Syncing splash; we
+    // expose the flag so the splash isn't shown spuriously when the
+    // gate is closed.
+    bool maybeSync(int64_t nowSec, bool* gateTriggered = nullptr);
+
     // DELETE /api/pair/<deviceId> (DeviceToken) — invoked by Reset.
     // On success, clears deviceToken_/homeName_ in this service
     // (caller must also wipe NVS + regen deviceId before reboot).
@@ -124,6 +152,11 @@ private:
     std::string                        deviceToken_;
     std::string                        homeName_;
     int64_t                            lastSyncAt_     = 0;
+    // Phase E — see setSyncIntervalSec() docs above.
+    int                                syncIntervalSec_ = 14400;   // 4 h
+    // Phase F — Login QR token cache, populated by loginTokenCreate().
+    std::string                        loginToken_;
+    int64_t                            loginTokenExpiresAt_ = 0;
     bool                               cancelRequested_ = false;
     std::string                        lastError_;
 

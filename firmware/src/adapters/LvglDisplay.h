@@ -21,6 +21,7 @@
 #include "views/CatsListView.h"
 #include "views/HomeView.h"
 #include "views/IdleView.h"
+#include "views/LoginQrView.h"
 #include "views/LockConfirmView.h"
 #include "views/MenuView.h"
 #include "views/PairingProgressView.h"
@@ -96,6 +97,7 @@ public:
     feedme::views::PairingView&     pairingView()  { return pairingView_; }
     feedme::views::PairingProgressView& pairingProgressView() { return pairingProgressView_; }
     feedme::views::SyncingView&     syncingView()  { return syncingView_; }
+    feedme::views::LoginQrView&     loginQrView()  { return loginQrView_; }
     feedme::views::ResetPairConfirmView& resetPairConfirmView() { return resetPairConfirmView_; }
     feedme::views::BootView&        bootView()     { return bootView_; }
     feedme::views::HomeView&        homeView()     { return homeView_; }
@@ -171,6 +173,9 @@ private:
     // running dots. Reached after a successful pair confirmation
     // (initial sync) or from H menu → Sync (manual).
     feedme::views::SyncingView         syncingView_;
+    // Phase F — Login QR. Already-paired devices show a 60-s, single-
+    // use QR a phone scans → /qr-login → exchange for a session.
+    feedme::views::LoginQrView         loginQrView_;
     // Reset-pairing confirmation — reached from PairingView via long
     // press. On confirm, rotates the hid + reboots so the user can
     // start over (forgotten PIN, change of household, etc).

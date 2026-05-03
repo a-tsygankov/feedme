@@ -202,9 +202,29 @@ constexpr int THRESHOLD_STEP_SEC       = 30 * 60;  // one detent = ±30 min
 //
 // timeoutMin == 0 disables sleep entirely. Inputs always reset the
 // idle timer (whether sleeping or not) via powerNotifyInput().
+//
+// Phase E: sleep-entry + wake-entry SYNC GATES. Per docs/sync-implementation-handoff.md
+// §2 Q3, when the device is about to drop the LCD (sleep-entry) or just
+// brought it back up (wake-entry), it checks `now - lastSyncAt vs
+// syncIntervalSec`. If exceeded, it transitions to the SyncingView
+// (which renders "Syncing..." and runs syncFull synchronously) BEFORE
+// completing the power-state change. The `pendingSleepAfterSync` flag
+// holds the sleep transition until the SyncingView returns to idle —
+// the loop sees the active view become "idle" again, and only then
+// turns off the backlight. Without that hold, the user would see the
+// screen go dark mid-sync.
 struct PowerState {
-    uint32_t lastInputMs = 0;
-    bool     sleeping    = false;
+    uint32_t lastInputMs           = 0;
+    bool     sleeping              = false;
+    // Phase E — set by powerTickAndMaybeSleep when the gate triggered
+    // a sync: we deferred the actual backlight-off until the SyncingView
+    // exits. The loop polls `display.currentView()` and, when it's no
+    // longer "syncing", drops the backlight here.
+    bool     sleepAfterSync        = false;
+    // Wake-entry gate fires once per wake. Set in powerWakeIfSleeping;
+    // the loop runs maybeSync() once on the next tick (so the user
+    // sees the existing wake view first), then clears.
+    bool     wakeSyncPending       = false;
 };
 PowerState powerState;
 
@@ -258,7 +278,38 @@ bool powerWakeIfSleeping() {
     // FeedConfirm / Settings / etc., the user wakes back on Idle so
     // they don't have to navigate out of a forgotten context.
     display.transitionTo("idle");
+    // Phase E — flag the wake-entry sync gate. We don't kick the sync
+    // here because the user just touched the knob and we want them to
+    // SEE the idle view first (responsiveness > stale-data correctness).
+    // The next loop tick checks the flag and runs maybeSync(), at which
+    // point the SyncingView takes over the screen if the gate triggers.
+    powerState.wakeSyncPending = true;
     return true;
+}
+
+// Phase E — Helper. Returns true if the sync gate just triggered AND
+// we transitioned to the syncing view to handle it. Caller can use
+// the return value to decide whether to defer follow-up state changes.
+static bool maybeSyncViaSyncingView() {
+#if !defined(SIMULATOR)
+    if (!syncService.isPaired()) return false;
+    const int64_t nowSec = appClock.nowSec();
+    if (nowSec <= 0) return false;  // clock not yet sync'd; gate is meaningless
+    const int interval = syncService.syncIntervalSec();
+    const int64_t elapsed = nowSec - syncService.lastSyncAt();
+    if (interval <= 0) return false;
+    if (syncService.lastSyncAt() > 0 && elapsed < interval) return false;
+    // Gate would trigger — show the splash. SyncingView's first
+    // render() calls syncService.syncFull() and on completion its
+    // nextView() returns "idle", which puts us back on the dashboard.
+    Serial.printf("[power] sync gate -> SyncingView (elapsed=%lld interval=%d)\n",
+                  static_cast<long long>(elapsed), interval);
+    display.transitionTo("syncing");
+    return true;
+#else
+    (void)0;
+    return false;
+#endif
 }
 
 void powerTickAndMaybeSleep() {
@@ -273,14 +324,50 @@ void powerTickAndMaybeSleep() {
         return;
     }
 #endif
+
+    // Phase E — if a previous sleep tick deferred the backlight-off
+    // because the gate kicked a sync, finish the deferred sleep once
+    // the SyncingView has returned to idle.
+    if (powerState.sleepAfterSync) {
+        const char* cur = display.currentView();
+        if (cur && strcmp(cur, "syncing") == 0) return;  // still syncing — keep waiting
+#if !defined(SIMULATOR)
+        digitalWrite(TFT_BL, !TFT_BACKLIGHT_ON);
+#endif
+        powerState.sleeping       = true;
+        powerState.sleepAfterSync = false;
+        Serial.println("[power] deferred sleep -> backlight off");
+        return;
+    }
+
     const uint32_t timeoutMs = static_cast<uint32_t>(timeoutMin) * 60u * 1000u;
     if (millis() - powerState.lastInputMs >= timeoutMs) {
+        // Phase E — sleep-entry sync gate. Try to transition to the
+        // SyncingView FIRST; if it triggers, defer turning off the
+        // backlight until that view returns. Otherwise sleep
+        // immediately.
+        if (maybeSyncViaSyncingView()) {
+            powerState.sleepAfterSync = true;
+            Serial.printf("[power] sleep deferred for sync after %d min idle\n", timeoutMin);
+            return;
+        }
 #if !defined(SIMULATOR)
         digitalWrite(TFT_BL, !TFT_BACKLIGHT_ON);
 #endif
         powerState.sleeping = true;
         Serial.printf("[power] sleep after %d min idle\n", timeoutMin);
     }
+}
+
+// Phase E — wake-entry sync gate. Called once per loop tick after
+// powerWakeIfSleeping has already brought the backlight back up.
+// Defers a frame so the user sees the idle dashboard refresh before
+// the SyncingView covers it; the user's wake gesture lands on a
+// responsive screen.
+void powerHandleWakeSync() {
+    if (!powerState.wakeSyncPending) return;
+    powerState.wakeSyncPending = false;
+    (void)maybeSyncViaSyncingView();
 }
 
 void setup() {
@@ -622,12 +709,21 @@ void setup() {
                 syncService.setHomeName(homeBuf);
             }
             syncService.setLastSyncAt(prefs.getLastSyncAt(0));
+            // Phase E — restore last-known sync interval (in seconds)
+            // from NVS so the FIRST sleep-entry gate after boot has a
+            // sensible value before the first /api/sync overwrites it.
+            // 14400 (4 h) matches backend DEFAULT_SYNC_INTERVAL_SEC.
+            syncService.setSyncIntervalSec(prefs.getSyncIntervalSec(14400));
         }
 
         // Wire the new pairing/sync views to the service + prefs.
         display.pairingProgressView().setSyncService(&syncService);
         display.pairingProgressView().setPreferences(&prefs);
         display.syncingView().setSyncService(&syncService);
+        // Phase F — LoginQrView posts to /api/auth/login-token-create
+        // via SyncService and renders the resulting one-shot URL as
+        // a QR. Same DeviceToken flow as syncing/unpair.
+        display.loginQrView().setSyncService(&syncService);
         display.homeView().setIsPairedSource(&gIsPaired);
 
         // Reset-pairing confirmation (Phase C rewrite). On confirm:
@@ -803,6 +899,10 @@ void loop() {
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
         feeding.tick();
+        // Phase E — wake-entry gate runs BEFORE the sleep tick so a
+        // user who taps to wake doesn't immediately get sleep-entry'd
+        // again on the same second.
+        powerHandleWakeSync();
         powerTickAndMaybeSleep();   // backlight off after N min idle
         // Phase C — push the wall clock into the rosters so any
         // setter that mutates a cat/user this tick can stamp
@@ -865,6 +965,28 @@ void loop() {
         if (display.userRoster().consumeLastFeederDirty()) {
             prefs.setLastFeederIdx(display.userRoster().lastFeederIdx());
         }
+#if !defined(SIMULATOR)
+        // Phase E — persist lastSyncAt + syncIntervalSec whenever the
+        // SyncService observes a new value. We diff against the
+        // previously-saved value so the every-tick prefs.getInt is
+        // skipped on no-op writes (NVS putInt is itself a no-op when
+        // the stored value matches, but the call still costs a flash
+        // read; better to short-circuit here).
+        {
+            static int64_t lastSavedSyncAt    = -1;
+            static int     lastSavedInterval  = -1;
+            const int64_t curSyncAt   = syncService.lastSyncAt();
+            const int     curInterval = syncService.syncIntervalSec();
+            if (curSyncAt > 0 && curSyncAt != lastSavedSyncAt) {
+                prefs.setLastSyncAt(curSyncAt);
+                lastSavedSyncAt = curSyncAt;
+            }
+            if (curInterval > 0 && curInterval != lastSavedInterval) {
+                prefs.setSyncIntervalSec(curInterval);
+                lastSavedInterval = curInterval;
+            }
+        }
+#endif
         // Active cat — persisted independently of the roster's dirty
         // flag so the IdleView selector spinning between cats doesn't
         // re-write the entire roster every tick. Tracks last-saved

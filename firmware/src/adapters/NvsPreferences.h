@@ -102,6 +102,8 @@ public:
     void    setHomeName(const char* value) override;
     int64_t getLastSyncAt(int64_t defaultValue) override;
     void    setLastSyncAt(int64_t value) override;
+    int     getSyncIntervalSec(int defaultValue) override;
+    void    setSyncIntervalSec(int value) override;
 
 private:
     ::Preferences prefs_;
@@ -136,6 +138,7 @@ private:
     static constexpr const char* KEY_DEVICE_TOKEN     = "devTok";
     static constexpr const char* KEY_HOME_NAME        = "homeNm";
     static constexpr const char* KEY_LAST_SYNC_AT     = "lastSync";
+    static constexpr const char* KEY_SYNC_INTERVAL    = "syncIntS";
     // Per-cat / per-user createdAt + updatedAt — keys formatted on
     // the fly via catSlotKey() with prefixes "cCa{slot}" / "cUa{slot}"
     // / "uCa{slot}" / "uUa{slot}". 6-char prefix budget keeps the
