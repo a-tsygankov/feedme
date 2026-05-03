@@ -168,6 +168,7 @@ export interface HomeInfo {
   hid: string;          // the home name — its unique identifier
   created_at: number;   // unix seconds
   deviceCount: number;  // how many physical devices have claimed in
+  hasPin: boolean;      // false → transparent (Phase F quick-setup) home
 }
 
 // Both setup and login optionally take a `deviceId` to claim — the
@@ -196,6 +197,34 @@ export const api = {
   // Returns the signed-in home's metadata. Used by HomePage /
   // SettingsPage to render the title + device count.
   me: () => apiRaw<HomeInfo>("/api/auth/me"),
+
+  // ── Phase F: transparent accounts + Login QR + set-PIN ────────
+  // Quick-setup: create a new transparent (no-PIN) home in one shot.
+  // The backend mints an opaque "home-{16hex}" hid for us. The deviceId
+  // is mandatory — the whole point is to get the user's just-scanned
+  // QR working with zero typing. Returns { token, hid, alreadyPaired? }.
+  // alreadyPaired=true when the device was already in a home (the
+  // backend short-circuits and returns the existing home + a fresh
+  // token instead of creating a duplicate).
+  quickSetup: (deviceId: string) =>
+    apiRaw<{ token: string; hid: string; alreadyPaired?: boolean }>(
+      "/api/auth/quick-setup", { method: "POST", body: { deviceId } },
+    ),
+  // Login-QR exchange: phone scans a QR shown by an already-paired
+  // device, hits this endpoint with { deviceId, token }, and gets a
+  // session token + cookie back. Server-side replay-protected via
+  // single-use consumption. 404 token, 403 deviceId mismatch, 410
+  // expired or already-consumed.
+  loginQr: (deviceId: string, token: string) =>
+    apiRaw<{ token: string; hid: string }>(
+      "/api/auth/login-qr", { method: "POST", body: { deviceId, token } },
+    ),
+  // Promote the signed-in (transparent) home to PIN-protected. 409
+  // if the home already has a PIN — change-PIN is a separate op.
+  setPin: (pin: string) =>
+    apiRaw<{ ok: true }>(
+      "/api/auth/set-pin", { method: "POST", body: { pin } },
+    ),
 
   // ── Pair lifecycle (Phase A, dev-23) ──────────────────────────
   // After auth, the webapp shows a "Confirm pairing" CTA when it

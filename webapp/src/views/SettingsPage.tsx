@@ -2,6 +2,58 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, type HomeInfo, type PairedDevice, api, auth } from "../lib/api";
 
+// Phase F — inline form for promoting a transparent home to PIN-
+// protected. Lives in this file so SettingsPage stays the only
+// surface that talks to /api/auth/set-pin and we don't grow a
+// micro-component file for ~30 lines of UI.
+function SetPinForm({ onSet }: { onSet: () => void }) {
+  const [pin, setPin]   = useState("");
+  const [pin2, setPin2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState<string | null>(null);
+
+  async function submit() {
+    setErr(null);
+    if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
+    if (pin !== pin2)   { setErr("PINs don't match");                return; }
+    setBusy(true);
+    try {
+      await api.setPin(pin);
+      onSet();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <p className="muted">
+        This home has no PIN. Anyone with the home ID can sign in.
+        Set a PIN to lock new sign-ins to this home.
+      </p>
+      <label>PIN (4+ digits)</label>
+      <input
+        type="password" inputMode="numeric" pattern="[0-9]*"
+        autoComplete="new-password"
+        value={pin} onChange={(e) => setPin(e.target.value)}
+      />
+      <label>Confirm PIN</label>
+      <input
+        type="password" inputMode="numeric" pattern="[0-9]*"
+        autoComplete="new-password"
+        value={pin2} onChange={(e) => setPin2(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+      />
+      <button disabled={busy} onClick={submit} style={{ width: "100%", marginTop: 12 }}>
+        {busy ? "..." : "Set PIN"}
+      </button>
+      {err && <p className="error">{err}</p>}
+    </>
+  );
+}
+
 // Settings. Holds the home name (= hid post-migration-0004), the
 // list of paired devices with per-row Forget, sign-out, and the
 // "forget home" hard-reset. Coming-soon: rename home, change PIN,
@@ -131,6 +183,19 @@ export default function SettingsPage() {
       >
         View sync log
       </button>
+
+      {/* Phase F — set-PIN card. Visible only for transparent (no-PIN)
+          homes; for PIN-protected homes the change-PIN flow ships
+          separately. We refresh /me after success so the card hides
+          itself without a full reload. */}
+      {home && home.hasPin === false && (
+        <div className="card">
+          <h2>Set a PIN</h2>
+          <SetPinForm onSet={() => {
+            api.me().then(setHome).catch(() => { /* keep stale */ });
+          }} />
+        </div>
+      )}
 
       <div className="card">
         <h2>Coming soon</h2>

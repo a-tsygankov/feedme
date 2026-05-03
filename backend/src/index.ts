@@ -1,5 +1,7 @@
 import {
   authFromRequest,
+  buildClearSessionCookie,
+  buildSessionCookie,
   hashPin,
   issueToken,
   requireType,
@@ -30,6 +32,12 @@ import {
   postSync,
 } from "./sync";
 import {
+  postLoginQr,
+  postLoginTokenCreate,
+  postQuickSetup,
+  postSetPin,
+} from "./transparent";
+import {
   createUser,
   deleteUser,
   getUsers,
@@ -53,15 +61,15 @@ interface FeedBody {
   eventId?: string;
 }
 
-const json = (data: unknown, init: ResponseInit = {}) =>
-  new Response(JSON.stringify(data), {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      "access-control-allow-origin": "*",
-      ...(init.headers ?? {}),
-    },
-  });
+const json = (data: unknown, init: ResponseInit = {}, cookie?: string) => {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    ...(init.headers as Record<string, string> | undefined ?? {}),
+  };
+  if (cookie) headers["set-cookie"] = cookie;
+  return new Response(JSON.stringify(data), { ...init, headers });
+};
 
 // "Today" boundary in UTC seconds, but rolled over at the *local*
 // midnight of the device's timezone. Math: shift utcNow by the
@@ -303,7 +311,11 @@ export default {
       }
 
       const token = await issueToken(hid, resolveSecret(env));
-      return json({ token, hid });
+      // Phase F — also set the session cookie so browser-based clients
+      // get sticky auth without juggling Authorization headers in JS.
+      // The token is still returned in the body for non-browser callers
+      // (firmware smoke tests, curl).
+      return json({ token, hid }, { status: 200 }, buildSessionCookie(token));
     }
 
     // POST /api/auth/login { hid, pin, deviceId? } → { token, hid }
@@ -329,6 +341,18 @@ export default {
       ).bind(hid).first<{ pin_salt: string; pin_hash: string }>();
       if (!row) return json({ error: "no such home" }, { status: 404 });
 
+      // Phase F — transparent (no-PIN) homes can't be logged into via
+      // PIN. They're entered through the Login QR flow instead. The
+      // empty-string sentinel on pin_salt/pin_hash distinguishes
+      // "transparent" from "PIN-protected" homes (legacy rows have a
+      // non-empty 32-hex salt + 64-hex hash so they pass through here).
+      if (row.pin_salt === "" && row.pin_hash === "") {
+        return json(
+          { error: "this home has no PIN; use the Login QR flow" },
+          { status: 409 },
+        );
+      }
+
       const ok = await verifyPin(body.pin, row.pin_salt, row.pin_hash);
       if (!ok) return json({ error: "wrong PIN" }, { status: 401 });
 
@@ -352,7 +376,24 @@ export default {
       }
 
       const token = await issueToken(hid, resolveSecret(env));
-      return json({ token, hid });
+      // Phase F — also set the session cookie. See /api/auth/setup for
+      // rationale; same Max-Age + HttpOnly + Secure + SameSite=Lax.
+      return json({ token, hid }, { status: 200 }, buildSessionCookie(token));
+    }
+
+    // ── Phase F: transparent accounts + Login QR + set-PIN ────────
+    // See transparent.ts for the design rationale. Quick-setup and
+    // login-qr are unauthenticated (the device-id / token IS the
+    // credential). login-token-create needs a DeviceToken; set-pin
+    // needs a UserToken.
+
+    if (url.pathname === "/api/auth/quick-setup" && req.method === "POST") {
+      const body = await req.json().catch(() => null);
+      return postQuickSetup(env, body, resolveSecret(env));
+    }
+    if (url.pathname === "/api/auth/login-qr" && req.method === "POST") {
+      const body = await req.json().catch(() => null);
+      return postLoginQr(env, body, resolveSecret(env));
     }
 
     // ── Web/phone-app authenticated routes ────────────────────────
@@ -364,6 +405,26 @@ export default {
       if (!authed) return json({ error: "unauthorized" }, { status: 401 });
       return null;
     };
+
+    // POST /api/auth/login-token-create (DeviceToken) — Phase F
+    // Device-side step of the Login QR flow. Mints a one-shot, 60-s
+    // token bound to the device's already-paired home; the device
+    // encodes the token in a QR for a phone to scan.
+    if (url.pathname === "/api/auth/login-token-create" && req.method === "POST") {
+      const deviceAuth = requireType(authed, "device");
+      if (!deviceAuth) return json({ error: "device token required" }, { status: 401 });
+      return postLoginTokenCreate(env, deviceAuth);
+    }
+
+    // POST /api/auth/set-pin (UserToken) — Phase F
+    // Promotes a transparent (no-PIN) home to PIN-protected. Rejects
+    // overwrites — change-PIN is a separate flow and not yet wired.
+    if (url.pathname === "/api/auth/set-pin" && req.method === "POST") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      const body = await req.json().catch(() => null);
+      return postSetPin(env, userAuth, body);
+    }
 
     // POST /api/sync (DeviceToken) — full LWW merge of cats / users
     // / home with the device's local state. Returns the canonical
@@ -427,16 +488,20 @@ export default {
     if (url.pathname === "/api/auth/me" && req.method === "GET") {
       const denied = requireAuth(); if (denied) return denied;
       const row = await env.DB.prepare(
-        "SELECT hid, created_at FROM households WHERE hid = ?",
-      ).bind(authed!.hid).first<{ hid: string; created_at: number }>();
+        "SELECT hid, created_at, pin_hash FROM households WHERE hid = ?",
+      ).bind(authed!.hid).first<{ hid: string; created_at: number; pin_hash: string }>();
       if (!row) return json({ error: "no such home" }, { status: 404 });
       const devCountRow = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM devices WHERE home_hid = ?",
       ).bind(authed!.hid).first<{ n: number }>();
+      // Phase F — empty pin_hash signals a transparent (no-PIN) home,
+      // created via /api/auth/quick-setup. The webapp uses this flag
+      // to decide whether to show the "Set a PIN" entry in Settings.
       return json({
         hid: row.hid,
         created_at: row.created_at,
         deviceCount: devCountRow?.n ?? 0,
+        hasPin: typeof row.pin_hash === "string" && row.pin_hash.length > 0,
       });
     }
 
@@ -462,7 +527,11 @@ export default {
       await env.DB.prepare("DELETE FROM devices     WHERE home_hid = ?").bind(hid).run();
       await env.DB.prepare("DELETE FROM households  WHERE hid = ?").bind(hid).run();
       console.log(`[auth] forgot home '${hid}'`);
-      return json({ ok: true, hid });
+      // Phase F — also clear the session cookie. The token itself is
+      // still valid (HMAC-signed payloads can't be revoked) but with
+      // the household row gone it'll fail every authed lookup, and
+      // clearing the cookie keeps the browser from sending stale auth.
+      return json({ ok: true, hid }, { status: 200 }, buildClearSessionCookie());
     }
 
     // ── Dashboard endpoints (auth-required, derive home from token) ──
