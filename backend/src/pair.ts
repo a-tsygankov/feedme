@@ -185,7 +185,7 @@ export async function postPairConfirm(
     }
     // Re-issue token (let the user double-tap Confirm without losing
     // their session). Device will accept either one.
-    const token = await issueDeviceToken(deviceId, hid, secret);
+    const token = await issueDeviceToken(hid, deviceId, secret);
     await env.DB.prepare(
       "UPDATE pending_pairings SET device_token = ? WHERE device_id = ?",
     ).bind(token, deviceId).run();
@@ -196,7 +196,10 @@ export async function postPairConfirm(
   // update the legacy devices table (so /api/feed keeps translating),
   // and stash the token on the pending_pairings row for the device's
   // next /check.
-  const token = await issueDeviceToken(deviceId, hid, secret);
+  // issueDeviceToken signature: (hid, deviceId, secret) — careful
+  // not to swap; an earlier bug minted tokens with the two values
+  // crossed and every /api/sync call returned 401 "pairing revoked".
+  const token = await issueDeviceToken(hid, deviceId, secret);
 
   // Soft-restore the active pairings row if one was previously
   // tombstoned for this device (re-pair after unpair). Otherwise insert.
@@ -236,6 +239,28 @@ export async function postPairConfirm(
 
   console.log(`[pair] confirm deviceId='${deviceId}' hid='${hid}'`);
   return json({ ok: true, deviceId, hid });
+}
+
+// ── GET /api/pair/list (UserToken) ───────────────────────────────
+// Returns active pairings for the signed-in home — drives the
+// webapp's Settings → Devices card. Soft-deleted pairings are
+// excluded; if you want history, query sync_logs filtered by device.
+export async function getPairList(
+  env: Env, hid: string,
+): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT device_id, created_at, updated_at
+     FROM pairings
+     WHERE home_hid = ? AND is_deleted = 0
+     ORDER BY created_at DESC`,
+  ).bind(hid).all<{ device_id: string; created_at: number; updated_at: number }>();
+  return json({
+    devices: (results ?? []).map(r => ({
+      deviceId:  r.device_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+  });
 }
 
 // ── DELETE /api/pair/{deviceId} ──────────────────────────────────

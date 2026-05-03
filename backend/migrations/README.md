@@ -59,6 +59,13 @@ npm run db:apply:remote -- --file=./migrations/0002_webapp_tables.sql
   (audit log; capped to 100 rows / home in code). All
   `CREATE TABLE IF NOT EXISTS`, fully re-runnable.
 
+- **`0007_cat_schedule_hours.sql`** — adds `schedule_hours TEXT`
+  to cats (JSON-serialised 4-element array of meal-slot hours),
+  matching the firmware's `MealSchedule`. Lets the sync engine
+  (Phase B) round-trip per-cat schedules. `ALTER TABLE ADD COLUMN`,
+  errors with "duplicate column name" if already applied — safe to
+  ignore.
+
 ## What about `schema.sql`?
 
 `schema.sql` is the **canonical full schema** — what a brand-new

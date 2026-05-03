@@ -20,10 +20,15 @@ import type { Env } from "./env";
 import {
   deletePair,
   getPairCheck,
+  getPairList,
   postPairCancel,
   postPairConfirm,
   postPairStart,
 } from "./pair";
+import {
+  getSyncLog,
+  postSync,
+} from "./sync";
 import {
   createUser,
   deleteUser,
@@ -371,6 +376,33 @@ export default {
       if (!authed) return json({ error: "unauthorized" }, { status: 401 });
       return null;
     };
+
+    // POST /api/sync (DeviceToken) — full LWW merge of cats / users
+    // / home with the device's local state. Returns the canonical
+    // server view (including tombstones). See sync.ts for the
+    // protocol contract.
+    if (url.pathname === "/api/sync" && req.method === "POST") {
+      const deviceAuth = requireType(authed, "device");
+      if (!deviceAuth) return json({ error: "device token required" }, { status: 401 });
+      const body = await req.json().catch(() => null);
+      return postSync(env, deviceAuth, body);
+    }
+
+    // GET /api/sync/log (UserToken) — drives the webapp's /sync-log
+    // viewer. Optional ?n=<limit> (1..100) and ?device=<id>.
+    if (url.pathname === "/api/sync/log" && req.method === "GET") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      return getSyncLog(env, userAuth.hid, url);
+    }
+
+    // GET /api/pair/list (UserToken) — list of currently-paired
+    // devices for the signed-in home. Drives Settings → Devices.
+    if (url.pathname === "/api/pair/list" && req.method === "GET") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      return getPairList(env, userAuth.hid);
+    }
 
     // POST /api/pair/confirm { deviceId } (UserToken)
     // Webapp side of the pairing handshake. Creates the active pairings

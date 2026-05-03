@@ -115,6 +115,63 @@ nav.tabs a.active {
   font-weight: 600;
 }
 
+/* ── Sync log rows ───────────────────────────────────────────────── */
+.syncrow {
+  display: grid;
+  grid-template-columns: 22px 50px 90px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.syncrow:last-child { border-bottom: 0; }
+.syncrow-icon { text-align: center; font-weight: 700; }
+.syncrow-ok       .syncrow-icon { color: #4ade80; }
+.syncrow-error    .syncrow-icon { color: #f87171; }
+.syncrow-cancelled .syncrow-icon { color: #facc15; }
+.syncrow-time     { color: var(--dim); font-variant-numeric: tabular-nums; }
+.syncrow-device   {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.syncrow-detail { font-size: 12px; }
+
+/* ── Settings → Devices card ─────────────────────────────────────── */
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.device-row:last-child { border-bottom: 0; }
+.device-row .device-id {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device-row .device-meta {
+  color: var(--dim);
+  font-size: 12px;
+}
+.device-row .forget-btn {
+  background: transparent;
+  border: 1px solid #553333;
+  color: #ff8888;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* ── Pair-confirm banner ─────────────────────────────────────────── */
 .card.pair-banner {
   border: 1px solid var(--accent);

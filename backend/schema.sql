@@ -92,6 +92,10 @@ CREATE TABLE IF NOT EXISTS cats (
   created_at           INTEGER NOT NULL DEFAULT 1735689600,
   updated_at           INTEGER NOT NULL DEFAULT 1735689600,
   is_deleted           INTEGER NOT NULL DEFAULT 0,
+  -- Per-cat meal schedule (migration 0007). JSON array of 4 hours
+  -- 0..23 matching firmware's MealSchedule (Breakfast / Lunch /
+  -- Dinner / Treat). Sync round-trips this verbatim.
+  schedule_hours       TEXT NOT NULL DEFAULT '[7,12,18,21]',
   PRIMARY KEY (hid, slot_id)
 );
 

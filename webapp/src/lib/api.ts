@@ -143,6 +143,26 @@ export interface HistoryEvent {
   cat:   string;       // stringified slot_id; "primary" for legacy
 }
 
+// One row in /api/sync/log — drives the SyncLogPage.
+export interface SyncLogEntry {
+  id:             number;
+  device_id:      string;
+  ts:             number;
+  result:         "ok" | "error" | "cancelled" | string;
+  error_message:  string | null;
+  entities_in:    number;
+  entities_out:   number;
+  conflicts:      number;
+  duration_ms:    number;
+}
+
+// One row in /api/pair/list — drives Settings → Devices.
+export interface PairedDevice {
+  deviceId:  string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 export interface HomeInfo {
   hid: string;          // the home name — its unique identifier
@@ -196,6 +216,19 @@ export const api = {
     apiRaw<{ ok: true; deviceId: string }>(
       `/api/pair/${encodeURIComponent(deviceId)}`, { method: "DELETE" },
     ),
+  // Active pairings for the signed-in home. Used by Settings →
+  // Devices card to render one row per device with a Forget button.
+  pairList: () =>
+    apiRaw<{ devices: PairedDevice[] }>("/api/pair/list"),
+
+  // ── Sync log (Phase B, dev-24) ────────────────────────────────
+  // Read-only audit list capped at 100/home. Filter by device with
+  // ?device=<id> to narrow to a single unit's history.
+  syncLogList: (deviceId?: string, n = 50) => {
+    const params = new URLSearchParams({ n: String(n) });
+    if (deviceId) params.set("device", deviceId);
+    return apiRaw<{ entries: SyncLogEntry[] }>(`/api/sync/log?${params.toString()}`);
+  },
   // Wipes the home + all per-home records (cats, users) for the
   // currently authenticated session. The backend route + db column are
   // still spelled "household" — that's the on-the-wire identifier and
