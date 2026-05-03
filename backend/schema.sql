@@ -41,7 +41,12 @@ CREATE TABLE IF NOT EXISTS households (
   -- Sync support (migration 0005). updated_at drives LWW; is_deleted
   -- is the tombstone the webapp + firmware filter on for active sets.
   updated_at INTEGER NOT NULL DEFAULT 0,
-  is_deleted INTEGER NOT NULL DEFAULT 0
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  -- Phase E (migration 0009). How often a paired device should sync
+  -- when idle. Range 3600 (1h) .. 86400 (24h); enforced in the
+  -- /api/home/settings PATCH handler. Devices read this from the
+  -- /api/sync response on every successful sync and cache it in NVS.
+  sync_interval_sec INTEGER NOT NULL DEFAULT 14400
 );
 
 -- ── Devices ───────────────────────────────────────────────────────

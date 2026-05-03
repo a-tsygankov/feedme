@@ -234,6 +234,19 @@ export const api = {
     if (deviceId) params.set("device", deviceId);
     return apiRaw<{ entries: SyncLogEntry[] }>(`/api/sync/log?${params.toString()}`);
   },
+
+  // ── Per-home settings (Phase E, dev-27) ───────────────────────
+  // Currently just the sync interval (1..24h). The webapp Settings
+  // page exposes this as an hours-input that converts to/from sec.
+  // Devices read the latest value from every /api/sync response and
+  // cache it in NVS.
+  homeSettingsGet: () =>
+    apiRaw<{ syncIntervalSec: number }>("/api/home/settings"),
+  homeSettingsSet: (syncIntervalSec: number) =>
+    apiRaw<{ syncIntervalSec: number }>(
+      "/api/home/settings",
+      { method: "PATCH", body: { syncIntervalSec } },
+    ),
   // Wipes the home + all per-home records (cats, users) for the
   // currently authenticated session. The backend route + db column are
   // still spelled "household" — that's the on-the-wire identifier and

@@ -13,21 +13,45 @@ export default function SettingsPage() {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [forgetting, setForgetting] = useState<string | null>(null);
+  // Phase E — sync interval (stored in seconds backend-side; the
+  // input edits hours for human friendliness). null = still loading.
+  const [syncIntervalHours, setSyncIntervalHours] = useState<number | null>(null);
+  const [savingInterval, setSavingInterval] = useState(false);
+  const [intervalErr, setIntervalErr] = useState<string | null>(null);
 
-  // Pull /api/auth/me + /api/pair/list in parallel. Both are cheap
-  // and cover the whole "Home" + "Devices" cards in one round-trip.
+  // Pull /api/auth/me + /api/pair/list + /api/home/settings in parallel.
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       api.me().catch(() => null),
       api.pairList().catch(() => ({ devices: [] as PairedDevice[] })),
-    ]).then(([info, devs]) => {
+      api.homeSettingsGet().catch(() => ({ syncIntervalSec: 14400 })),
+    ]).then(([info, devs, settings]) => {
       if (cancelled) return;
       if (info) setHome(info);
       setDevices(devs.devices);
+      setSyncIntervalHours(Math.round(settings.syncIntervalSec / 3600));
     });
     return () => { cancelled = true; };
   }, []);
+
+  async function saveSyncInterval() {
+    if (syncIntervalHours === null) return;
+    setIntervalErr(null);
+    if (syncIntervalHours < 1 || syncIntervalHours > 24) {
+      setIntervalErr("Interval must be 1-24 hours");
+      return;
+    }
+    setSavingInterval(true);
+    try {
+      await api.homeSettingsSet(syncIntervalHours * 3600);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : (e as Error).message;
+      setIntervalErr(msg);
+    } finally {
+      setSavingInterval(false);
+    }
+  }
 
   async function forgetDevice(deviceId: string) {
     if (!confirm(
@@ -122,6 +146,38 @@ export default function SettingsPage() {
             </button>
           </div>
         ))}
+      </div>
+
+      <div className="card">
+        <h2>Sync</h2>
+        <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
+          How often paired devices upload + pull changes when idle.
+          Range 1–24 h. Devices read this on every successful sync.
+        </p>
+        <div className="row" style={{ borderBottom: 0 }}>
+          <span style={{ flex: 1 }}>Interval (hours)</span>
+          <input
+            type="number"
+            min={1}
+            max={24}
+            step={1}
+            value={syncIntervalHours ?? ""}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              setSyncIntervalHours(Number.isFinite(n) ? n : null);
+            }}
+            style={{ width: 80, padding: "6px 8px", textAlign: "right" }}
+          />
+        </div>
+        {intervalErr && <p className="error">{intervalErr}</p>}
+        <button
+          className="secondary"
+          disabled={savingInterval || syncIntervalHours === null}
+          onClick={saveSyncInterval}
+          style={{ width: "100%", marginTop: 12 }}
+        >
+          {savingInterval ? "Saving…" : "Save interval"}
+        </button>
       </div>
 
       <button

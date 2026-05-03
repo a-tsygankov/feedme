@@ -25,7 +25,9 @@
     "db:migrate:0007:local": "wrangler d1 execute feedme --local  --file=./migrations/0007_cat_schedule_hours.sql",
     "db:migrate:0007:remote": "wrangler d1 execute feedme --remote --file=./migrations/0007_cat_schedule_hours.sql",
     "db:migrate:0008:local": "wrangler d1 execute feedme --local  --file=./migrations/0008_entity_uuids.sql",
-    "db:migrate:0008:remote": "wrangler d1 execute feedme --remote --file=./migrations/0008_entity_uuids.sql"
+    "db:migrate:0008:remote": "wrangler d1 execute feedme --remote --file=./migrations/0008_entity_uuids.sql",
+    "db:migrate:0009:local": "wrangler d1 execute feedme --local  --file=./migrations/0009_sync_interval.sql",
+    "db:migrate:0009:remote": "wrangler d1 execute feedme --remote --file=./migrations/0009_sync_interval.sql"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",

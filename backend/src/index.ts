@@ -18,6 +18,10 @@ import {
 } from "./dashboard";
 import type { Env } from "./env";
 import {
+  getHomeSettings,
+  patchHomeSettings,
+} from "./home_settings";
+import {
   deletePair,
   getPairCheck,
   getPairList,
@@ -382,6 +386,22 @@ export default {
       const userAuth = requireType(authed, "user");
       if (!userAuth) return json({ error: "user token required" }, { status: 401 });
       return getSyncLog(env, userAuth.hid, url);
+    }
+
+    // ── Per-home settings (Phase E, UserToken) ────────────────────
+    // Currently a single `syncIntervalSec` field. PATCH validates
+    // 1..24h range; GET falls back to the 4h default if the migration
+    // hasn't run yet.
+    if (url.pathname === "/api/home/settings" && req.method === "GET") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      return getHomeSettings(env, userAuth.hid);
+    }
+    if (url.pathname === "/api/home/settings" && req.method === "PATCH") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      const body = await req.json().catch(() => null);
+      return patchHomeSettings(env, userAuth.hid, body);
     }
 
     // GET /api/pair/list (UserToken) — list of currently-paired
