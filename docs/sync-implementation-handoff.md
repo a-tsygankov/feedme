@@ -64,7 +64,7 @@
 |---|---|---|---|
 | Q1 | **UUIDs on cats and users.** Add `uuid TEXT` (16-hex) to both tables; backfill via `randomblob(16)` for existing rows. `slot_id` stays as per-device display ordering. Sync wire format keys on `uuid`. | Without UUIDs, two unpaired devices that each create slot 0 lose one cat on first sync. Cheap to add now; painful to bolt on later. | Migrating later requires re-deduping any existing collisions by hand. |
 | Q2 | **Schedule embedded in Cat.** No separate `cat_schedules` table — slot hours stay as columns / array on the cat row. | Cat row's `updated_at` bumps on any field change including schedule. Saves a join + simplifies merge. | Field-level conflicts on cats stay coarse (whole-row LWW). Same coarseness as Q1 covers. |
-| Q3 | **3-tier sleep + sync only at sleep-entry.** Active → display-sleep (LCD off, CPU on) → light-sleep (~1 mA, wakes <1 ms on encoder/touch). At each sleep transition: if `now - lastSyncAt > syncIntervalSec`, kick a sync (show Syncing screen, hold the sleep transition until sync completes or fails). **No wake-entry sync; no RTC timer wake.** | Deep sleep with input wake isn't possible on this board (encoder pins 41/42/45 are outside the ESP32-S3 RTC GPIO range 0-21). Light sleep gives ~50× power savings over today and keeps the knob alive. Pre-sleep sync ensures the freshest local state is always pushed before the device goes inert. | **Known freshness gap**: a device that's been asleep for days shows whatever state it had at sleep-entry until the *next* sleep-entry, even if the user wakes it and looks at the screen first. Mitigation: Manual Sync from H menu when freshness matters; per-device upgrade later if the gap proves annoying. |
+| Q3 | **3-tier sleep + sync at sleep-entry AND wake-entry.** Active → display-sleep (LCD off, CPU on) → light-sleep (~1 mA, wakes <1 ms on encoder/touch). At each sleep transition AND each wake transition: if `now - lastSyncAt > syncIntervalSec`, kick a sync (show Syncing screen, hold transition until done/fail). No RTC timer wake-up. | Deep sleep with input wake isn't possible on this board (encoder pins 41/42/45 are outside the ESP32-S3 RTC GPIO range 0-21). Light sleep gives ~50× power savings over today and keeps the knob alive. Sync at sleep-entry covers "I just walked away"; sync at wake-entry covers "I just came back" so a long-idle device doesn't show stale data the moment the user picks it up. | A battery variant could later layer deep-sleep timer-wake on top for the periodic-sync path; not needed for USB-powered v1. |
 | Q4 | **Short-poll on `GET /api/pair/check`** every 15 s, 3-min total. Server returns the row's current state; client drives cadence. No long-polling, no Durable Object. | Stateless serverless fits Workers' execution model; testing is straightforward. Long-polling would cut median pair time by ~7.5 s — not worth the DO dependency. | Migration to long-poll is a server-only change; client cadence stays the same. |
 | Q5 | **Random 16-hex device ID after Reset.** `feedme-{16 hex chars from esp_random()}`. Existing devices keep their MAC-derived id forever for back-compat (the legacy-claim path covers them). | Stays close to current naming; full UUIDv4 (36 chars) bloats URLs and NVS for no real benefit at this scale. | None — collision probability of 16-hex over our population is effectively zero. |
 | Q6 | **Ring buffer of 100 sync logs per home.** After-insert prune: `DELETE WHERE id NOT IN (SELECT id FROM sync_logs WHERE home_hid=? ORDER BY ts DESC LIMIT 100)`. | ~1 KB × 100 = 100 KB / home — well within D1 free tier. Surfaces the most recent useful history, doesn't grow unbounded. | Trivial to bump the limit later if users want longer history. |
@@ -622,8 +622,11 @@ A new `application/SyncService` owns:
     enter light-sleep → calls `maybeKickSync()` which compares
     `now - lastSyncAt` vs `syncIntervalSec` and only kicks if the
     threshold is exceeded; the sleep transition is held until the
-    sync completes or fails). **This is the sole automatic sync
-    trigger** — no wake-entry sync, no RTC timer wake.
+    sync completes or fails)
+  - **Wake-entry gate** (light-sleep wake → same `maybeKickSync()`
+    check; runs in the background while the wake-up view renders so
+    the user gets the existing UI immediately, with a fresh state
+    a moment later)
   - Initial after pair (`bootSync()` — bypasses the time gate, always
     syncs)
 - **HTTP**: builds the SyncRequest, POSTs to `/api/sync`, parses
