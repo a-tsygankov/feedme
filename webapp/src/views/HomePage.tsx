@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, type DashboardCat, type HistoryEvent, type HomeInfo,
          type User, api, auth } from "../lib/api";
 import ArcRing from "../components/ArcRing";
 import CatFace from "../components/CatFace";
 import { formatAgo, moodFor, ringProgress } from "../lib/mood";
+
+// localStorage key for a pending pairing the user dismissed but
+// might want to retry. Set when /setup or /login carries a deviceId
+// to /?pair=…; cleared on confirm or explicit dismiss.
+const PENDING_PAIR_KEY = "feedme.pendingPair";
 
 // Dashboard — webapp equivalent of the device's idle screen, one card
 // per cat. Translates the mockup workflows:
@@ -26,6 +32,8 @@ import { formatAgo, moodFor, ringProgress } from "../lib/mood";
 const POLL_MS = 30_000;
 
 export default function HomePage() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [home, setHome] = useState<HomeInfo | null>(null);
   const [cats, setCats] = useState<DashboardCat[] | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -35,6 +43,21 @@ export default function HomePage() {
   const [busySlot, setBusySlot] = useState<number | null>(null);
   const [openHistorySlot, setOpenHistorySlot] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryEvent[] | null>(null);
+
+  // Pending pairing: surfaced when /setup or /login carried a
+  // deviceId through to /?pair=…, OR when a previous mount stashed
+  // one in localStorage (user dismissed before confirming, came back
+  // later). Cleared on confirm or explicit dismiss.
+  const [pairDeviceId, setPairDeviceId] = useState<string>(() => {
+    const fromUrl = (params.get("pair") ?? "").trim();
+    if (fromUrl) return fromUrl;
+    return (localStorage.getItem(PENDING_PAIR_KEY) ?? "").trim();
+  });
+  const [pairBusy, setPairBusy] = useState(false);
+  // Persist any URL-derived deviceId so a reload doesn't drop it.
+  useEffect(() => {
+    if (pairDeviceId) localStorage.setItem(PENDING_PAIR_KEY, pairDeviceId);
+  }, [pairDeviceId]);
 
   // Hold the latest-known users list in a ref so the feed handler
   // doesn't capture a stale closure when called from the auto-poll.
@@ -90,6 +113,44 @@ export default function HomePage() {
     window.setTimeout(() => setToast(null), 1700);
   }
 
+  async function confirmPairing() {
+    if (!pairDeviceId || pairBusy) return;
+    setPairBusy(true);
+    try {
+      await api.pairConfirm(pairDeviceId);
+      flashToast(`Paired ${pairDeviceId} ✓`);
+      // Clear both URL state and localStorage; refetch /me so the
+      // device count updates.
+      localStorage.removeItem(PENDING_PAIR_KEY);
+      setPairDeviceId("");
+      navigate("/", { replace: true });
+      // Force a /me refetch to pick up the new deviceCount.
+      api.me().then((info) => setHome(info)).catch(() => { /* keep stale */ });
+    } catch (e) {
+      // 404 — device's pairing window expired or never started.
+      // 410 — device cancelled or window timed out after start.
+      // Both are recoverable: clear local state, ask the user to
+      // re-tap Pair on the device.
+      const msg = e instanceof ApiError && (e.status === 404 || e.status === 410)
+        ? "Pairing window expired — re-tap Pair on the device, then refresh."
+        : (e instanceof Error ? e.message : "pair failed");
+      flashToast(msg);
+      if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
+        localStorage.removeItem(PENDING_PAIR_KEY);
+        setPairDeviceId("");
+        navigate("/", { replace: true });
+      }
+    } finally {
+      setPairBusy(false);
+    }
+  }
+
+  function dismissPairing() {
+    localStorage.removeItem(PENDING_PAIR_KEY);
+    setPairDeviceId("");
+    navigate("/", { replace: true });
+  }
+
   async function feed(cat: DashboardCat, type: "feed" | "snooze") {
     if (busySlot !== null) return;
     const by = feeder || usersRef.current[0]?.name || "User 0";
@@ -142,6 +203,34 @@ export default function HomePage() {
       <p className="muted">
         {home ? `${home.deviceCount} device${home.deviceCount === 1 ? "" : "s"} paired` : " "}
       </p>
+
+      {pairDeviceId && (
+        <div className="card pair-banner">
+          <h2>Pair this device?</h2>
+          <p className="muted">
+            Confirm to add device <code>{pairDeviceId}</code> to{" "}
+            <b>{displayName}</b>. The device is on its <i>Pairing…</i>
+            screen waiting for this. After confirm, the device picks
+            up its session token within ~15 seconds.
+          </p>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              disabled={pairBusy}
+              onClick={confirmPairing}
+              style={{ flex: 1 }}
+            >
+              {pairBusy ? "…" : "Confirm pairing"}
+            </button>
+            <button
+              className="secondary"
+              disabled={pairBusy}
+              onClick={dismissPairing}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       {err && <p className="error">{err}</p>}
       {!cats && !err && <p className="muted">Loading…</p>}

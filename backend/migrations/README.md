@@ -47,6 +47,18 @@ npm run db:apply:remote -- --file=./migrations/0002_webapp_tables.sql
   keep working without any code changes on the firmware side. All
   `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`, fully re-runnable.
 
+- **`0005_entity_timestamps.sql`** — universal LWW triplet
+  (`created_at`, `updated_at`, `is_deleted`) on households, cats,
+  users, devices. `ALTER TABLE ADD COLUMN`, errors with
+  "duplicate column name" if already applied — safe to ignore.
+  See `docs/sync-implementation-handoff.md` §5.2 for merge rules.
+
+- **`0006_sync_tables.sql`** — three new tables for the multi-device
+  sync flow: `pending_pairings` (3-min TTL handshake state),
+  `pairings` (persistent device↔home relationship), `sync_logs`
+  (audit log; capped to 100 rows / home in code). All
+  `CREATE TABLE IF NOT EXISTS`, fully re-runnable.
+
 ## What about `schema.sql`?
 
 `schema.sql` is the **canonical full schema** — what a brand-new

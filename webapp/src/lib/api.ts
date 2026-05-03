@@ -176,6 +176,26 @@ export const api = {
   // Returns the signed-in home's metadata. Used by HomePage /
   // SettingsPage to render the title + device count.
   me: () => apiRaw<HomeInfo>("/api/auth/me"),
+
+  // ── Pair lifecycle (Phase A, dev-23) ──────────────────────────
+  // After auth, the webapp shows a "Confirm pairing" CTA when it
+  // arrived via /setup?device=… or /login?device=… (carried through
+  // to / as ?pair=…). Clicking the CTA calls this; on success the
+  // device's polling /api/pair/check returns confirmed + token.
+  // Returns { ok, deviceId, hid } or throws ApiError on non-2xx
+  // (404 = device not in pairing window, 410 = device cancelled).
+  pairConfirm: (deviceId: string) =>
+    apiRaw<{ ok: true; deviceId: string; hid: string }>(
+      "/api/pair/confirm", { method: "POST", body: { deviceId } },
+    ),
+  // Webapp-side "Forget device" — soft-deletes the active pairings
+  // row + clears the legacy devices row so the device's events
+  // stop landing in this home. The device itself isn't notified;
+  // its DeviceToken is now orphaned and will start failing /api/sync.
+  pairForget: (deviceId: string) =>
+    apiRaw<{ ok: true; deviceId: string }>(
+      `/api/pair/${encodeURIComponent(deviceId)}`, { method: "DELETE" },
+    ),
   // Wipes the home + all per-home records (cats, users) for the
   // currently authenticated session. The backend route + db column are
   // still spelled "household" — that's the on-the-wire identifier and

@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS households (
   pin_salt   TEXT NOT NULL,
   pin_hash   TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  name       TEXT NOT NULL DEFAULT ''   -- deprecated; see migration 0004 notes
+  name       TEXT NOT NULL DEFAULT '',  -- deprecated; see migration 0004 notes
+  -- Sync support (migration 0005). updated_at drives LWW; is_deleted
+  -- is the tombstone the webapp + firmware filter on for active sets.
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
 -- ── Devices ───────────────────────────────────────────────────────
@@ -55,9 +59,15 @@ CREATE TABLE IF NOT EXISTS households (
 -- treating the device hid as the home hid — preserves single-device
 -- legacy behaviour with zero firmware changes required.
 CREATE TABLE IF NOT EXISTS devices (
-  device_id TEXT PRIMARY KEY,
-  home_hid  TEXT NOT NULL,
-  joined_at INTEGER NOT NULL
+  device_id  TEXT PRIMARY KEY,
+  home_hid   TEXT NOT NULL,
+  joined_at  INTEGER NOT NULL,
+  -- Sync support (migration 0005). created_at + updated_at duplicate
+  -- joined_at on first insert; updated_at bumps if the same device
+  -- re-pairs into the same home after a soft-delete.
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  is_deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_devices_home_hid ON devices(home_hid);
 
@@ -75,7 +85,13 @@ CREATE TABLE IF NOT EXISTS cats (
   slug                 TEXT NOT NULL DEFAULT 'C2',
   default_portion_g    INTEGER NOT NULL DEFAULT 40,
   hungry_threshold_sec INTEGER NOT NULL DEFAULT 18000,     -- 5 hours
-  deleted_at           INTEGER,                            -- NULL = active
+  deleted_at           INTEGER,                            -- legacy soft-delete (Phase 2 era)
+  -- Sync support (migration 0005). is_deleted is the canonical
+  -- tombstone going forward; deleted_at is kept for back-compat
+  -- with code paths that haven't migrated yet.
+  created_at           INTEGER NOT NULL DEFAULT 1735689600,
+  updated_at           INTEGER NOT NULL DEFAULT 1735689600,
+  is_deleted           INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (hid, slot_id)
 );
 
@@ -87,9 +103,52 @@ CREATE TABLE IF NOT EXISTS users (
   slot_id    INTEGER NOT NULL,
   name       TEXT NOT NULL,
   color      INTEGER NOT NULL DEFAULT 0,                   -- 0xRRGGBB; 0 = "auto"
-  deleted_at INTEGER,                                      -- NULL = active
+  deleted_at INTEGER,                                      -- legacy soft-delete (Phase 2 era)
+  -- Sync support (migration 0005). See cats above for the same
+  -- rationale on is_deleted vs deleted_at coexistence.
+  created_at INTEGER NOT NULL DEFAULT 1735689600,
+  updated_at INTEGER NOT NULL DEFAULT 1735689600,
+  is_deleted INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (hid, slot_id)
 );
+
+-- ── Sync support tables (migration 0006) ─────────────────────────
+-- See docs/sync-implementation-handoff.md §4.2.
+
+CREATE TABLE IF NOT EXISTS pending_pairings (
+  device_id     TEXT PRIMARY KEY,
+  requested_at  INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,         -- requested_at + 180
+  home_hid      TEXT,
+  confirmed_at  INTEGER,
+  device_token  TEXT,
+  cancelled_at  INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS pairings (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id     TEXT NOT NULL,
+  home_hid      TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  is_deleted    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pairings_device ON pairings(device_id);
+CREATE INDEX IF NOT EXISTS idx_pairings_home   ON pairings(home_hid);
+
+CREATE TABLE IF NOT EXISTS sync_logs (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  home_hid        TEXT NOT NULL,
+  device_id       TEXT NOT NULL,
+  ts              INTEGER NOT NULL,
+  result          TEXT NOT NULL,
+  error_message   TEXT,
+  entities_in     INTEGER NOT NULL DEFAULT 0,
+  entities_out    INTEGER NOT NULL DEFAULT 0,
+  conflicts       INTEGER NOT NULL DEFAULT 0,
+  duration_ms     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_home_ts ON sync_logs(home_hid, ts DESC);
 
 -- ── Migrations ────────────────────────────────────────────────────
 -- This file is the CANONICAL FULL SCHEMA — what a brand-new database

@@ -53,7 +53,15 @@ export default function LoginPage() {
         initialDevice || undefined,
       );
       auth.set(token, returnedHid);
-      navigate("/", { replace: true });
+      // Carry the deviceId (if we had one) through to the dashboard
+      // so the confirm-pairing banner appears. The legacy
+      // devices-table claim on /api/auth/login is enough for
+      // /api/feed translation, but the new pairings table needs an
+      // explicit /api/pair/confirm — that's what the banner triggers.
+      const next = initialDevice
+        ? `/?pair=${encodeURIComponent(initialDevice)}`
+        : "/";
+      navigate(next, { replace: true });
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.status === 404) { setUnknown(true); return; }
