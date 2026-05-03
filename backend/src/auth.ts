@@ -64,6 +64,33 @@ const constantTimeEqual = (a: string, b: string): boolean => {
   return diff === 0;
 };
 
+// ── Transparent-home sentinel ────────────────────────────────────
+//
+// Phase F homes created via /api/auth/quick-setup have empty
+// pin_salt + pin_hash strings — the in-band sentinel for "no PIN
+// required". PIN-protected homes have a 32-hex salt + 64-hex hash.
+// Centralised here so handlers don't disagree on which column to
+// inspect (early Phase F shipped with three subtly-different checks
+// across index.ts + transparent.ts; one of them might have stayed
+// behind if a future migration ever wrote one column but not the
+// other after a partial repair).
+export interface PinFields {
+  pin_salt: string | null;
+  pin_hash: string | null;
+}
+export function isTransparentHome(row: PinFields | null | undefined): boolean {
+  if (!row) return false;
+  // EITHER column empty → transparent. Defensive against partial
+  // writes (e.g. a future migration that updated pin_salt but
+  // crashed before pin_hash). Treating "half-set" as transparent
+  // lets set-pin recover — the alternative (treat as PIN-protected)
+  // would lock the user out, since /api/auth/login's verifyPin
+  // would compare against an empty salt and always fail.
+  const saltEmpty = !row.pin_salt || row.pin_salt.length === 0;
+  const hashEmpty = !row.pin_hash || row.pin_hash.length === 0;
+  return saltEmpty || hashEmpty;
+}
+
 // ── PIN hashing ──────────────────────────────────────────────────
 export async function hashPin(pin: string): Promise<{salt: string; hash: string}> {
   const saltBytes = crypto.getRandomValues(new Uint8Array(SALT_BYTES));

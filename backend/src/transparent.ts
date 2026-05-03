@@ -4,11 +4,14 @@
 //
 //   1. Quick-setup (POST /api/auth/quick-setup):
 //      Creates a TRANSPARENT home — no name to pick, no PIN to choose.
-//      Generates an opaque hid like "home-{8hex}" and inserts the
-//      household with empty pin_salt/pin_hash (the in-band sentinel
+//      Generates an opaque hid like "home-{16 hex chars}" and inserts
+//      the household with empty pin_salt/pin_hash (the in-band sentinel
 //      for "no PIN required"). Atomically claims the device that
-//      scanned the QR. Designed for the user who wants the device
-//      working in 30 s without thinking about identity. Cookie set.
+//      scanned the QR — including writing the DeviceToken into the
+//      pending_pairings row, so the firmware's next /pair/check returns
+//      confirmed and there's NO follow-up confirm-banner click on the
+//      dashboard. Designed for the user who wants the device working
+//      in 30 s without thinking about identity. Cookie set.
 //
 //   2. Login QR (POST /api/auth/login-token-create + login-qr):
 //      An ALREADY-PAIRED device shows a one-shot QR encoding a
@@ -16,7 +19,9 @@
 //      the webapp → POST /api/auth/login-qr exchanges the token for
 //      a UserToken + cookie. Lets a phone re-sign-in to a paired home
 //      without retyping anything (and without the user even knowing
-//      the home name).
+//      the home name). Both endpoints gate on an active pairings row
+//      (is_deleted = 0), so a forgotten device's still-valid
+//      DeviceToken can't mint phone-login QRs into its former home.
 //
 //   3. Set-PIN (POST /api/auth/set-pin):
 //      Promotes a transparent account to PIN-protected. Once a PIN is
@@ -26,11 +31,15 @@
 //
 // Tokens minted in (2) live in the login_qr_tokens table from
 // migration 0010. Backfill: empty pin_salt/pin_hash strings on
-// pre-Phase-F homes mean "PIN-protected" (legacy behaviour); the
-// distinction is "" vs the 64-char hex hash. Existing rows have a
-// real hash so they're unambiguous.
+// pre-Phase-F homes mean "transparent (no PIN)"; existing rows
+// before Phase F all have a real 32-hex salt + 64-hex hash so the
+// sentinel is unambiguous. Use isTransparentHome() from auth.ts —
+// don't open-code the check.
 
-import { hashPin, issueUserToken, buildSessionCookie, type AuthInfo } from "./auth";
+import {
+  hashPin, isTransparentHome, issueDeviceToken, issueUserToken,
+  buildSessionCookie, type AuthInfo,
+} from "./auth";
 import type { Env } from "./env";
 
 const QR_TOKEN_TTL_SEC      = 60;      // single-use, very short — UX = scan in <60 s
@@ -58,9 +67,23 @@ function randomHex(bytes: number): string {
 
 // ── POST /api/auth/quick-setup { deviceId } ────────────────────────
 // No auth required (the device is unpaired and trying to start fresh).
-// The deviceId binds the new home to the device that scanned. Idempotency:
-// if the device already has an active pairing, return its existing
-// home + a fresh UserToken instead of double-creating.
+// The deviceId binds the new home to the device that scanned.
+//
+// Single-shot pairing: in addition to creating the household + claiming
+// the device, this also writes the DeviceToken back into the device's
+// pending_pairings row so the firmware's next /api/pair/check returns
+// confirmed. The user does NOT need to click a confirm-pairing banner
+// on the dashboard (Phase F regression: prior implementation did
+// require that, and would silently leave the device in pairing-poll
+// limbo if its 3-min /pair/start window had expired between QR-scan
+// and Quick-Start tap). Refuses with 409 when the pending_pairings
+// row is missing / cancelled / past its expires_at, so the user is
+// told to re-tap Pair on the device rather than getting a half-paired
+// state.
+//
+// Idempotency: if the device is already in an active pairings row
+// (e.g. user tapped Quick-Start twice), reuse the existing home and
+// issue a fresh UserToken without minting a second household.
 export async function postQuickSetup(
   env: Env, body: unknown, secret: string,
 ): Promise<Response> {
@@ -84,10 +107,43 @@ export async function postQuickSetup(
     );
   }
 
+  // Validate the device's pending_pairings row exists and is fresh
+  // BEFORE creating any rows. If the device's /pair/start window
+  // expired, we want to refuse the whole operation rather than create
+  // an orphan household the firmware can't actually find.
+  const now = Math.floor(Date.now() / 1000);
+  const pending = await env.DB.prepare(
+    `SELECT requested_at, expires_at, cancelled_at
+     FROM pending_pairings WHERE device_id = ?`,
+  ).bind(deviceId).first<{
+    requested_at: number; expires_at: number; cancelled_at: number | null;
+  }>();
+  if (!pending) {
+    return json(
+      { error: "device hasn't requested pairing — tap Pair on the device first" },
+      { status: 409 },
+    );
+  }
+  if (pending.cancelled_at) {
+    return json(
+      { error: "device cancelled pairing — re-tap Pair on the device" },
+      { status: 410 },
+    );
+  }
+  if (pending.expires_at <= now) {
+    return json(
+      { error: "device's pairing window expired — re-tap Pair on the device" },
+      { status: 410 },
+    );
+  }
+
   // Fresh transparent home: generate hid, insert with empty
   // pin_salt/pin_hash (the "no PIN" sentinel), claim the device.
   const hid = QUICK_SETUP_PREFIX + randomHex(QUICK_SETUP_RAND_HEX);
-  const now = Math.floor(Date.now() / 1000);
+  // Mint the DeviceToken up front; it goes into both the response
+  // path (cookie/UserToken for the webapp) and the pending_pairings
+  // row (for the firmware to pick up on its next /pair/check).
+  const deviceToken = await issueDeviceToken(hid, deviceId, secret);
 
   try {
     await env.DB.prepare(
@@ -96,6 +152,9 @@ export async function postQuickSetup(
        VALUES (?, '', '', ?, '', ?, 0)`,
     ).bind(hid, now, now).run();
 
+    // Active pairings row — this IS the canonical record now (no
+    // /pair/confirm round-trip will rewrite it). Same shape as the
+    // INSERT in pair.ts's postPairConfirm.
     await env.DB.prepare(
       `INSERT INTO pairings (device_id, home_hid, created_at, updated_at, is_deleted)
        VALUES (?, ?, ?, ?, 0)`,
@@ -110,15 +169,26 @@ export async function postQuickSetup(
        ON CONFLICT(device_id) DO UPDATE SET
          home_hid = excluded.home_hid, updated_at = excluded.updated_at, is_deleted = 0`,
     ).bind(deviceId, hid, now, now, now).run();
+
+    // Write the DeviceToken into pending_pairings so the device's
+    // next /api/pair/check returns "confirmed". Without this the
+    // firmware would stay stuck on its Pairing... screen until its
+    // local 3-min timer expired, even though the household + pairings
+    // rows were created successfully.
+    await env.DB.prepare(
+      `UPDATE pending_pairings
+         SET home_hid = ?, confirmed_at = ?, device_token = ?
+       WHERE device_id = ?`,
+    ).bind(hid, now, deviceToken, deviceId).run();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[quick-setup] insert failed: ${msg}`);
     return json({ error: `quick-setup failed: ${msg}` }, { status: 500 });
   }
 
-  const token = await issueUserToken(hid, secret);
-  console.log(`[quick-setup] created transparent home '${hid}' for device '${deviceId}'`);
-  return json({ token, hid }, { status: 200 }, buildSessionCookie(token));
+  const userToken = await issueUserToken(hid, secret);
+  console.log(`[quick-setup] created transparent home '${hid}' for device '${deviceId}' (paired in one shot)`);
+  return json({ token: userToken, hid }, { status: 200 }, buildSessionCookie(userToken));
 }
 
 // ── POST /api/auth/login-token-create (DeviceToken) ────────────────
@@ -128,9 +198,30 @@ export async function postQuickSetup(
 // token (no dedup) — the prior one stays valid until expiry but the
 // device discards it. Replay-protection comes from single-use
 // consumption in /login-qr.
+//
+// PAIRING REVOCATION GATE: a DeviceToken is HMAC-signed with a 365-day
+// TTL and there's no token-revocation list, so a forgotten device
+// keeps verifying after the user clicks "Forget device" in Settings.
+// Without this gate, that forgotten device could still mint phone-
+// login QRs that grant strangers session access into the home that
+// kicked it out. We refuse here when there's no active pairings row
+// for (deviceId, hid).
 export async function postLoginTokenCreate(
   env: Env, authed: Extract<AuthInfo, { type: "device" }>,
 ): Promise<Response> {
+  const pair = await env.DB.prepare(
+    `SELECT id FROM pairings
+     WHERE device_id = ? AND home_hid = ? AND is_deleted = 0
+     ORDER BY id DESC LIMIT 1`,
+  ).bind(authed.deviceId, authed.hid).first<{ id: number }>();
+  if (!pair) {
+    console.warn(`[login-token-create] revoked-device attempt: device='${authed.deviceId}' hid='${authed.hid}'`);
+    return json(
+      { error: "device pairing has been revoked; re-pair from H menu" },
+      { status: 401 },
+    );
+  }
+
   const token = randomHex(16);
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + QR_TOKEN_TTL_SEC;
@@ -149,6 +240,16 @@ export async function postLoginTokenCreate(
 // short-lived token IS the credential. Server validates token is
 // not expired, not consumed, matches the deviceId, then marks it
 // consumed and issues a UserToken + cookie for the home.
+//
+// Single-use is enforced ATOMICALLY via the WHERE clause on the
+// UPDATE. The earlier check-then-update sequence had a race where
+// two concurrent /login-qr calls with the same token both passed
+// the consumed_at IS NULL check and both wrote consumed_at, both
+// returning UserTokens. The window was small but real — D1 calls
+// are remote and concurrent requests for the same token aren't
+// hypothetical. By making the UPDATE itself the source of truth
+// (and reading meta.changes to detect the loser), we get true
+// once-and-only-once semantics without a transaction.
 export async function postLoginQr(
   env: Env, body: unknown, secret: string,
 ): Promise<Response> {
@@ -164,20 +265,35 @@ export async function postLoginQr(
     consumed_at: number | null; device_id: string;
   }>();
   if (!row) return json({ error: "unknown token" }, { status: 404 });
+  // deviceId-mismatch is checked BEFORE the consume attempt so a
+  // probing attacker who somehow learned a token can't trip the
+  // single-use lock by guessing wrong deviceIds (the legit phone
+  // would then get "already consumed" instead of being able to use
+  // its valid token).
   if (row.device_id !== b.deviceId) {
     return json({ error: "deviceId mismatch" }, { status: 403 });
-  }
-  if (row.consumed_at !== null) {
-    return json({ error: "token already consumed" }, { status: 410 });
   }
   const now = Math.floor(Date.now() / 1000);
   if (row.expires_at <= now) {
     return json({ error: "token expired (60s TTL)" }, { status: 410 });
   }
+  if (row.consumed_at !== null) {
+    // Cheap pre-check before attempting the UPDATE. Doesn't change
+    // correctness (the conditional UPDATE would catch this anyway)
+    // but saves the round-trip when the token's been consumed
+    // long enough that a second caller is just retrying.
+    return json({ error: "token already consumed" }, { status: 410 });
+  }
 
-  await env.DB.prepare(
-    "UPDATE login_qr_tokens SET consumed_at = ? WHERE token = ?",
+  // Conditional UPDATE: only proceeds if consumed_at IS NULL right
+  // now. If two concurrent calls reach here, exactly one's UPDATE
+  // returns changes=1 and the other returns changes=0.
+  const res = await env.DB.prepare(
+    "UPDATE login_qr_tokens SET consumed_at = ? WHERE token = ? AND consumed_at IS NULL",
   ).bind(now, b.token).run();
+  if ((res.meta.changes ?? 0) === 0) {
+    return json({ error: "token already consumed" }, { status: 410 });
+  }
 
   const token = await issueUserToken(row.home_hid, secret);
   console.log(`[login-qr] consumed token for device '${b.deviceId}' → home '${row.home_hid}'`);
@@ -201,10 +317,10 @@ export async function postSetPin(
     return json({ error: "pin too short (min 4)" }, { status: 400 });
   }
   const row = await env.DB.prepare(
-    "SELECT pin_salt FROM households WHERE hid = ?",
-  ).bind(authed.hid).first<{ pin_salt: string }>();
+    "SELECT pin_salt, pin_hash FROM households WHERE hid = ?",
+  ).bind(authed.hid).first<{ pin_salt: string; pin_hash: string }>();
   if (!row) return json({ error: "no such home" }, { status: 404 });
-  if (row.pin_salt && row.pin_salt.length > 0) {
+  if (!isTransparentHome(row)) {
     return json({ error: "PIN already set; use change-pin (not yet implemented)" },
                 { status: 409 });
   }

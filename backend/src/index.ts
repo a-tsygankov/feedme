@@ -3,6 +3,7 @@ import {
   buildClearSessionCookie,
   buildSessionCookie,
   hashPin,
+  isTransparentHome,
   issueToken,
   requireType,
   verifyPin,
@@ -346,11 +347,9 @@ export default {
       if (!row) return json({ error: "no such home" }, { status: 404 });
 
       // Phase F — transparent (no-PIN) homes can't be logged into via
-      // PIN. They're entered through the Login QR flow instead. The
-      // empty-string sentinel on pin_salt/pin_hash distinguishes
-      // "transparent" from "PIN-protected" homes (legacy rows have a
-      // non-empty 32-hex salt + 64-hex hash so they pass through here).
-      if (row.pin_salt === "" && row.pin_hash === "") {
+      // PIN. They're entered through the Login QR flow instead. See
+      // auth.ts/isTransparentHome for the sentinel definition.
+      if (isTransparentHome(row)) {
         return json(
           { error: "this home has no PIN; use the Login QR flow" },
           { status: 409 },
@@ -508,20 +507,22 @@ export default {
     if (url.pathname === "/api/auth/me" && req.method === "GET") {
       const denied = requireAuth(); if (denied) return denied;
       const row = await env.DB.prepare(
-        "SELECT hid, created_at, pin_hash FROM households WHERE hid = ?",
-      ).bind(authed!.hid).first<{ hid: string; created_at: number; pin_hash: string }>();
+        "SELECT hid, created_at, pin_salt, pin_hash FROM households WHERE hid = ?",
+      ).bind(authed!.hid).first<{
+        hid: string; created_at: number; pin_salt: string; pin_hash: string;
+      }>();
       if (!row) return json({ error: "no such home" }, { status: 404 });
       const devCountRow = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM devices WHERE home_hid = ?",
       ).bind(authed!.hid).first<{ n: number }>();
-      // Phase F — empty pin_hash signals a transparent (no-PIN) home,
-      // created via /api/auth/quick-setup. The webapp uses this flag
-      // to decide whether to show the "Set a PIN" entry in Settings.
+      // Phase F — hasPin is the inverse of the transparent-home
+      // sentinel. The webapp uses it to decide whether to show the
+      // "Set a PIN" entry in Settings.
       return json({
         hid: row.hid,
         created_at: row.created_at,
         deviceCount: devCountRow?.n ?? 0,
-        hasPin: typeof row.pin_hash === "string" && row.pin_hash.length > 0,
+        hasPin: !isTransparentHome(row),
       });
     }
 

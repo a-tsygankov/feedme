@@ -65,9 +65,16 @@ export default function SetupPage() {
   }, [deviceId, navigate]);
 
   // Phase F — "Quick start" path. Skips name + PIN entirely; the
-  // backend mints an opaque "home-{16hex}" hid and returns a session
-  // token + cookie in one round-trip. The user can promote to a
-  // PIN-protected home later via Settings → Set a PIN.
+  // backend mints an opaque "home-{16hex}" hid AND completes the
+  // pair handshake in the same call (writes pending_pairings.
+  // confirmed_at + device_token, so the firmware's next /pair/check
+  // returns confirmed without a follow-up /pair/confirm round-trip).
+  // The user can promote to a PIN-protected home later via Settings
+  // → Set a PIN.
+  //
+  // Unlike the PIN setup path, we navigate straight to / (no
+  // ?pair=… query) — there's no confirm-pairing banner to render
+  // because there's nothing left to confirm.
   async function submitQuickStart() {
     setErr(null);
     if (!deviceId) { setErr("Missing device id — re-scan the QR"); return; }
@@ -75,10 +82,7 @@ export default function SetupPage() {
     try {
       const { token, hid } = await api.quickSetup(deviceId);
       auth.set(token, hid);
-      // Same /?pair=… handoff as the PIN flow — the device is still
-      // polling /api/pair/check and needs the dashboard's confirm-
-      // pairing banner to fire POST /api/pair/confirm.
-      navigate(`/?pair=${encodeURIComponent(deviceId)}`, { replace: true });
+      navigate("/", { replace: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "quick start failed");
     } finally {
