@@ -186,6 +186,45 @@ public:
     int  getHidResetCount(int d) override { return hidResetHasValue_ ? hidReset_ : d; }
     void setHidResetCount(int v) override { hidReset_ = v; hidResetHasValue_ = true; }
 
+    // Phase C sync state — sim is offline so most paths are no-ops,
+    // but we provide in-RAM storage so sync-flow unit tests can run.
+    int64_t getCatCreatedAt(int slot, int64_t d) override {
+        return (slot >= 0 && slot < 4 && catCreatedAtSet_[slot]) ? catCreatedAt_[slot] : d;
+    }
+    void setCatCreatedAt(int slot, int64_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        catCreatedAt_[slot] = v; catCreatedAtSet_[slot] = true;
+    }
+    int64_t getCatUpdatedAt(int slot, int64_t d) override {
+        return (slot >= 0 && slot < 4 && catUpdatedAtSet_[slot]) ? catUpdatedAt_[slot] : d;
+    }
+    void setCatUpdatedAt(int slot, int64_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        catUpdatedAt_[slot] = v; catUpdatedAtSet_[slot] = true;
+    }
+    int64_t getUserCreatedAt(int slot, int64_t d) override {
+        return (slot >= 0 && slot < 4 && userCreatedAtSet_[slot]) ? userCreatedAt_[slot] : d;
+    }
+    void setUserCreatedAt(int slot, int64_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        userCreatedAt_[slot] = v; userCreatedAtSet_[slot] = true;
+    }
+    int64_t getUserUpdatedAt(int slot, int64_t d) override {
+        return (slot >= 0 && slot < 4 && userUpdatedAtSet_[slot]) ? userUpdatedAt_[slot] : d;
+    }
+    void setUserUpdatedAt(int slot, int64_t v) override {
+        if (slot < 0 || slot >= 4) return;
+        userUpdatedAt_[slot] = v; userUpdatedAtSet_[slot] = true;
+    }
+    bool getDeviceId(char*, int) override     { return false; }
+    void setDeviceId(const char*) override    {}
+    bool getDeviceToken(char*, int) override  { return false; }
+    void setDeviceToken(const char*) override {}
+    bool getHomeName(char*, int) override     { return false; }
+    void setHomeName(const char*) override    {}
+    int64_t getLastSyncAt(int64_t d) override { return lastSyncSet_ ? lastSync_ : d; }
+    void setLastSyncAt(int64_t v) override    { lastSync_ = v; lastSyncSet_ = true; }
+
 private:
     int64_t threshold_     = 0;
     int     portion_       = 0;
@@ -235,6 +274,16 @@ private:
     bool     pairedHasValue_   = false;
     int      hidReset_         = 0;
     bool     hidResetHasValue_ = false;
+    int64_t  catCreatedAt_   [4] = {0};
+    bool     catCreatedAtSet_[4] = {false};
+    int64_t  catUpdatedAt_   [4] = {0};
+    bool     catUpdatedAtSet_[4] = {false};
+    int64_t  userCreatedAt_  [4] = {0};
+    bool     userCreatedAtSet_[4]= {false};
+    int64_t  userUpdatedAt_  [4] = {0};
+    bool     userUpdatedAtSet_[4]= {false};
+    int64_t  lastSync_         = 0;
+    bool     lastSyncSet_      = false;
 };
 
 }  // namespace feedme::adapters

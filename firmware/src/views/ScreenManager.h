@@ -16,14 +16,15 @@ namespace feedme::views {
 // pointer to a stack/static instance owned by LvglDisplay.
 class ScreenManager {
 public:
-    // 29 today: 25 base + Setup + Pair + ResetPairConfirm + Home.
-    // Bump generously — the array is just pointers (32 * 4 B on a 32-bit
-    // target), and silent overflow here puts the device in a boot-loop:
-    // the Settings → "destination view" lookup fails, the dispatcher
-    // can't transition, and the screen freezes on whatever the previous
-    // view rendered (most visibly: BootView trying to land on PairingView
-    // and being stuck forever).
-    static constexpr int MAX_VIEWS = 32;
+    // 31 today after Phase C added PairingProgressView + SyncingView.
+    // Bump generously — the array is just pointers (40 * 4 B on a
+    // 32-bit target), and silent overflow here puts the device in a
+    // boot-loop: the dispatcher can't transition to a dropped
+    // destination, the screen freezes on whatever the previous view
+    // rendered (most visibly: BootView trying to land on PairingView
+    // and being stuck forever). Phase D's LoginQrView + SyncCancelledView
+    // and Phase F's transparent-account screens fit comfortably.
+    static constexpr int MAX_VIEWS = 40;
 
     // Drop input events that arrive within this window after a screen
     // transition. Catches the case where a single press (or a quick

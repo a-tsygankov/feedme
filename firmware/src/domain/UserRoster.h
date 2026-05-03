@@ -19,6 +19,21 @@ struct User {
     // accents (FedView "by" line, FeederPicker rows, UsersList rows).
     // Auto-assigned at add() / appendLoaded; persisted in NVS.
     uint32_t avatarColor = 0xFFFFFF;
+
+    // Sync timestamps (Phase C) — same semantics as Cat. createdAt
+    // immutable after add(); updatedAt bumps on every mutation
+    // through UserRoster's setters; both unix seconds; 0 is the
+    // "loaded from pre-sync NVS" sentinel.
+    int64_t createdAt = 0;
+    int64_t updatedAt = 0;
+};
+
+// Tombstone — pending local hard-delete that hasn't been reported
+// to the backend yet. See CatRoster.h's CatTombstone for full
+// rationale; same shape, same lifecycle.
+struct UserTombstone {
+    uint8_t id        = 0;
+    int64_t updatedAt = 0;
 };
 
 // Household user roster.
@@ -39,6 +54,26 @@ class UserRoster {
 public:
     static constexpr int  MAX_USERS    = 4;
     static constexpr char DEFAULT_NAME[] = "User";
+
+    // Threaded clock for stamping updatedAt on mutations — same
+    // pattern as CatRoster::setNow(). main.cpp ticks per second.
+    void setNow(int64_t nowSec) { now_ = nowSec; }
+    int64_t now() const { return now_; }
+
+    // Pending tombstones (local hard-deletes awaiting sync upload).
+    int                   pendingDeleteCount() const { return pendingDeleteCount_; }
+    const UserTombstone&  pendingDeleteAt(int i) const { return pendingDeletes_[i]; }
+    void clearPendingDeletes() {
+        if (pendingDeleteCount_ == 0) return;
+        pendingDeleteCount_ = 0;
+        dirty_ = true;
+    }
+    void appendTombstone(uint8_t id, int64_t updatedAt) {
+        if (pendingDeleteCount_ >= MAX_USERS) return;
+        pendingDeletes_[pendingDeleteCount_].id        = id;
+        pendingDeletes_[pendingDeleteCount_].updatedAt = updatedAt;
+        ++pendingDeleteCount_;
+    }
 
     int  count() const { return count_; }
     const User& at(int i) const { return users_[i]; }
@@ -108,6 +143,8 @@ public:
         u.id = nextId_++;
         snprintf(u.name, User::NAME_CAP, "%s %d", DEFAULT_NAME, u.id);
         u.avatarColor = autoUserColor(u.id);
+        u.createdAt = now_;
+        u.updatedAt = now_;
         ++count_;
         dirty_ = true;
         return count_ - 1;
@@ -125,6 +162,13 @@ public:
     bool remove(int slot) {
         if (slot < 0 || slot >= count_) return false;
         if (count_ <= 1) return false;
+        // Capture tombstone before the array shift — SyncService
+        // sends these as is_deleted=true rows on the next /api/sync.
+        if (pendingDeleteCount_ < MAX_USERS) {
+            pendingDeletes_[pendingDeleteCount_].id        = users_[slot].id;
+            pendingDeletes_[pendingDeleteCount_].updatedAt = now_;
+            ++pendingDeleteCount_;
+        }
         for (int i = slot; i < count_ - 1; ++i) {
             users_[i] = users_[i + 1];
         }
@@ -150,6 +194,14 @@ public:
         if (strncmp(users_[i].name, name, User::NAME_CAP) == 0) return;
         strncpy(users_[i].name, name, User::NAME_CAP - 1);
         users_[i].name[User::NAME_CAP - 1] = '\0';
+        users_[i].updatedAt = now_;
+        dirty_ = true;
+    }
+    void setAvatarColor(int i, uint32_t color) {
+        if (i < 0 || i >= count_) return;
+        if (users_[i].avatarColor == color) return;
+        users_[i].avatarColor = color;
+        users_[i].updatedAt = now_;
         dirty_ = true;
     }
 
@@ -164,7 +216,8 @@ public:
         nextId_ = 0;
         dirty_ = false;
     }
-    void appendLoaded(uint8_t id, const char* name, uint32_t avatarColor = 0) {
+    void appendLoaded(uint8_t id, const char* name, uint32_t avatarColor = 0,
+                      int64_t createdAt = 0, int64_t updatedAt = 0) {
         if (count_ >= MAX_USERS) return;
         User& u = users_[count_];
         u.id = id;
@@ -173,6 +226,8 @@ public:
         // 0 sentinel = "no stored color" → use round-robin default
         // (handles users from a pre-color era on first boot).
         u.avatarColor = (avatarColor != 0) ? avatarColor : autoUserColor(id);
+        u.createdAt = createdAt;
+        u.updatedAt = updatedAt;
         ++count_;
         if (id >= nextId_) nextId_ = id + 1;
     }
@@ -188,6 +243,9 @@ private:
     int     currentFeederIdx_  = -1;  // transient, not persisted
     int     lastFeederIdx_     = 0;   // persisted; default to slot 0
     bool    lastFeederDirty_   = false;
+    int64_t now_               = 0;   // wall-clock pushed in by main.cpp
+    UserTombstone pendingDeletes_[MAX_USERS]{};
+    int           pendingDeleteCount_ = 0;
 };
 
 }  // namespace feedme::domain

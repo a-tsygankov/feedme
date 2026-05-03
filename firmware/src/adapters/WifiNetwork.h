@@ -63,6 +63,33 @@ public:
     int         rssi()      const override;
     std::string ipAddress() const override;
 
+    // ── Phase C — generic JSON HTTP for sync + pair lifecycle ─────
+    //
+    // The pair endpoints (start/check/cancel) and /api/sync need
+    // arbitrary JSON request/response bodies that don't fit the
+    // existing fixed-shape postFeed / fetchState helpers. This thin
+    // generic layer lets SyncService own the JSON shape entirely:
+    // it builds the request body, calls one of these, and parses
+    // the response.
+    //
+    // bearerToken is the Authorization: Bearer header value. Pass
+    // an empty string for unauthenticated endpoints (pair lifecycle).
+    //
+    // status == 0 indicates a network-level failure (no DNS / no
+    // route / connect timeout). Non-zero is whatever the Worker
+    // returned. body holds the raw response text — caller parses.
+    struct HttpResult {
+        int         status = 0;
+        std::string body;
+    };
+    HttpResult httpPostJson(const char* path,
+                            const std::string& jsonBody,
+                            const std::string& bearerToken = "");
+    HttpResult httpGet(const char* path,
+                       const std::string& bearerToken = "");
+    HttpResult httpDelete(const char* path,
+                          const std::string& bearerToken = "");
+
 private:
     bool postEvent(const std::string& by, const char* type, int durationSec,
                    uint8_t catId, const std::string& eventId);

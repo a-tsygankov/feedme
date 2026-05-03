@@ -31,6 +31,7 @@
 #endif
 #include "application/DisplayCoordinator.h"
 #include "application/FeedingService.h"
+#include "application/SyncService.h"
 #include "domain/Mood.h"
 #include "domain/MoodCalculator.h"
 
@@ -225,6 +226,22 @@ feedme::application::FeedingService feeding(
 feedme::application::DisplayCoordinator displayCoord(
     display, feeding, appClock, display.roster(), display.timezone());
 
+// Phase C — sync service. Owns the pair lifecycle + /api/sync round-
+// trip. WifiNetwork is the only adapter wired in; the cat + user
+// rosters are read-and-replaced in place on each successful sync.
+// On the simulator path WifiNetwork is replaced by NoopNetwork in
+// the conditional above; SyncService still constructs but its HTTP
+// calls return network errors (sim is offline by design).
+#if !defined(SIMULATOR)
+feedme::application::SyncService syncService(
+    wifiNetwork, display.roster(), display.userRoster());
+#endif
+
+// "Are we paired?" — flipped to true when the device picks up a
+// DeviceToken from /api/pair/check. HomeView watches a pointer to
+// this so the Sync row can grey out until pairing completes.
+bool gIsPaired = false;
+
 uint32_t lastServiceTickMs = 0;
 
 }  // namespace
@@ -412,12 +429,19 @@ void setup() {
             const int64_t threshold = prefs.getCatThresholdSec(i, defaultThr);
             // 0 sentinel → CatRoster falls back to autoCatColor(id).
             const uint32_t color    = prefs.getCatColor(i, 0);
+            // Phase C: pull the sync timestamps too. Default 0 is the
+            // "loaded from a pre-Phase-C snapshot" sentinel — the
+            // first sync overwrites with server-canonical timestamps.
+            const int64_t catCreatedAt = prefs.getCatCreatedAt(i, 0);
+            const int64_t catUpdatedAt = prefs.getCatUpdatedAt(i, 0);
             roster.appendLoaded(static_cast<uint8_t>(id),
                                 haveName ? nameBuf : nullptr,
                                 haveSlug ? slugBuf : nullptr,
                                 portion,
                                 threshold,
-                                color);
+                                color,
+                                catCreatedAt,
+                                catUpdatedAt);
             // Per-slot schedule hours layer on top of the defaults
             // already populated by appendLoaded → MealSchedule's ctor.
             // Reach into the cat we just appended (count_-1) and
@@ -467,9 +491,13 @@ void setup() {
             char nameBuf[feedme::domain::User::NAME_CAP] = {0};
             const bool haveName = prefs.getUserName(i, nameBuf, sizeof(nameBuf));
             const uint32_t color = prefs.getUserColor(i, 0);
+            const int64_t userCreatedAt = prefs.getUserCreatedAt(i, 0);
+            const int64_t userUpdatedAt = prefs.getUserUpdatedAt(i, 0);
             roster.appendLoaded(static_cast<uint8_t>(id),
                                 haveName ? nameBuf : nullptr,
-                                color);
+                                color,
+                                userCreatedAt,
+                                userUpdatedAt);
         }
         roster.seedDefaultIfEmpty();
         roster.markClean();
@@ -538,22 +566,94 @@ void setup() {
         }
         display.pairingView().setHid(gPairHid);
         display.pairingView().setUrl(gPairUrl);
+        // Phase C: tap on the QR no longer flips the NVS paired flag
+        // directly — that happens INSIDE PairingProgressView once the
+        // server confirms. Leaving onPaired_ as a no-op keeps the
+        // view's existing API stable; PairingView::handleInput now
+        // returns "pairingProgress" on tap.
         display.pairingView().setOnPaired(+[]() {
-            prefs.setPaired(true);
-            Serial.println("[pairing] dismissed — paired flag set");
+            Serial.println("[pairing] tap → pairing progress (Phase C handshake)");
         });
 
-        // Reset-pairing confirmation. On confirm: bump the reset
-        // counter, drop the hid + paired flag from NVS, reboot. The
-        // boot path will then regenerate hid as feedme-{mac6}-{n+1}
-        // and PairingView will show the new QR. Old backend household
-        // record is orphaned (manual cleanup on the server).
+        // ── Phase C: SyncService wiring ──────────────────────────
+        // Load any cached deviceId / token / homeName from NVS. For
+        // legacy devices that already have an `hid` (the MAC-derived
+        // value) but no `deviceId` (the new key), migrate by setting
+        // deviceId = hid. This preserves their server-side `devices`
+        // table mapping created by PR #22's migration 0004.
+        {
+            char devBuf[40] = {0};
+            if (!prefs.getDeviceId(devBuf, sizeof(devBuf)) || devBuf[0] == '\0') {
+                // Empty deviceId → migrate from legacy hid (if any)
+                // or generate a fresh 16-hex random for first boot.
+                if (nvsHid[0] != '\0') {
+                    std::strncpy(devBuf, nvsHid, sizeof(devBuf) - 1);
+                    Serial.printf("[sync] migrating legacy hid '%s' → deviceId\n", devBuf);
+                } else {
+                    // Generate `feedme-` + 16 random hex chars.
+                    snprintf(devBuf, sizeof(devBuf), "feedme-%04x%04x%04x%04x",
+                             static_cast<unsigned>(esp_random() & 0xffff),
+                             static_cast<unsigned>(esp_random() & 0xffff),
+                             static_cast<unsigned>(esp_random() & 0xffff),
+                             static_cast<unsigned>(esp_random() & 0xffff));
+                    Serial.printf("[sync] generated new deviceId '%s'\n", devBuf);
+                }
+                prefs.setDeviceId(devBuf);
+            }
+            syncService.setDeviceId(devBuf);
+
+            char tokBuf[256] = {0};
+            if (prefs.getDeviceToken(tokBuf, sizeof(tokBuf)) && tokBuf[0] != '\0') {
+                syncService.setDeviceToken(tokBuf);
+                gIsPaired = true;
+                Serial.println("[sync] loaded device token from NVS — paired");
+            }
+
+            char homeBuf[64] = {0};
+            if (prefs.getHomeName(homeBuf, sizeof(homeBuf)) && homeBuf[0] != '\0') {
+                syncService.setHomeName(homeBuf);
+            }
+            syncService.setLastSyncAt(prefs.getLastSyncAt(0));
+        }
+
+        // Wire the new pairing/sync views to the service + prefs.
+        display.pairingProgressView().setSyncService(&syncService);
+        display.pairingProgressView().setPreferences(&prefs);
+        display.syncingView().setSyncService(&syncService);
+        display.homeView().setIsPairedSource(&gIsPaired);
+
+        // Reset-pairing confirmation (Phase C rewrite). On confirm:
+        //   1. DELETE /api/pair/<deviceId> with the current device
+        //      token (best-effort; ignore network errors so a Reset
+        //      while offline still proceeds locally).
+        //   2. Wipe NVS: device token, paired flag, home name, hid,
+        //      cat/user counts, last-sync timestamp.
+        //   3. Generate a fresh 16-hex random deviceId per Q5 in the
+        //      sync handoff doc.
+        //   4. Reboot — the new boot regenerates rosters from scratch
+        //      (one default cat + user) and PairingView shows the new QR.
         display.resetPairConfirmView().setOnConfirm(+[]() {
-            const int next = prefs.getHidResetCount(0) + 1;
-            prefs.setHidResetCount(next);
-            prefs.setHid("");          // empty → regenerated next boot
-            prefs.setPaired(false);    // PairingView re-shows
-            Serial.printf("[pairing] reset (n=%d) — rebooting\n", next);
+            Serial.println("[pairing] reset confirmed — unpair + wipe + reboot");
+            // Step 1: server-side unpair (no-op if already unpaired).
+            (void)syncService.unpair();
+            // Step 2: wipe local pairing + roster state.
+            prefs.setDeviceToken("");
+            prefs.setPaired(false);
+            prefs.setHomeName("");
+            prefs.setHid("");
+            prefs.setLastSyncAt(0);
+            prefs.setCatCount(0);
+            prefs.setUserCount(0);
+            // Step 3: rotate to a fresh deviceId so the orphaned
+            // server-side devices row can't be replayed against.
+            char devBuf[40];
+            snprintf(devBuf, sizeof(devBuf), "feedme-%04x%04x%04x%04x",
+                     static_cast<unsigned>(esp_random() & 0xffff),
+                     static_cast<unsigned>(esp_random() & 0xffff),
+                     static_cast<unsigned>(esp_random() & 0xffff),
+                     static_cast<unsigned>(esp_random() & 0xffff));
+            prefs.setDeviceId(devBuf);
+            Serial.printf("[pairing] new deviceId='%s' — rebooting\n", devBuf);
             delay(300);
             ESP.restart();
         });
@@ -696,6 +796,13 @@ void loop() {
         lastServiceTickMs = now;
         feeding.tick();
         powerTickAndMaybeSleep();   // backlight off after N min idle
+        // Phase C — push the wall clock into the rosters so any
+        // setter that mutates a cat/user this tick can stamp
+        // updatedAt without reaching for a global clock. 1 Hz cadence
+        // is fine for LWW sync resolution (which only cares about
+        // ordering, not microsecond precision).
+        display.roster().setNow(appClock.nowSec());
+        display.userRoster().setNow(appClock.nowSec());
         if (display.quiet().consumeDirty()) {
             prefs.setQuietEnabled    (display.quiet().enabled());
             prefs.setQuietStartHour  (display.quiet().startHour());
@@ -726,6 +833,10 @@ void loop() {
                 for (int s = 0; s < feedme::domain::MealSchedule::SLOT_COUNT; ++s) {
                     prefs.setCatScheduleHour(i, s, roster.at(i).schedule.slotHour(s));
                 }
+                // Phase C — sync timestamps. The cat's updatedAt was
+                // bumped by whichever setter triggered the dirty flag.
+                prefs.setCatCreatedAt(i, roster.at(i).createdAt);
+                prefs.setCatUpdatedAt(i, roster.at(i).updatedAt);
             }
         }
         if (display.userRoster().consumeDirty()) {
@@ -735,6 +846,8 @@ void loop() {
                 prefs.setUserId   (i, users.at(i).id);
                 prefs.setUserName (i, users.at(i).name);
                 prefs.setUserColor(i, users.at(i).avatarColor);
+                prefs.setUserCreatedAt(i, users.at(i).createdAt);
+                prefs.setUserUpdatedAt(i, users.at(i).updatedAt);
             }
         }
         if (display.userRoster().consumeLastFeederDirty()) {

@@ -40,6 +40,17 @@ struct Cat {
     PortionState portion;
     MealSchedule schedule;
     int64_t      hungryThresholdSec = DEFAULT_THRESHOLD_S;
+
+    // Sync timestamps (Phase C). createdAt is set once at add() time
+    // and is immutable afterwards; updatedAt bumps on every mutation
+    // through CatRoster's setters. Both unix seconds. The server's
+    // LWW merge picks the side with the higher updatedAt; rows whose
+    // updatedAt is 0 (the default) lose every comparison, which is
+    // the correct behaviour for "this row was loaded from a pre-sync
+    // NVS snapshot and we don't actually know when it was last
+    // edited" — the server's value wins and overwrites the unknown.
+    int64_t      createdAt = 0;
+    int64_t      updatedAt = 0;
 };
 
 // Fixed-capacity household cat roster. Per [handoff.md § "Entities…"]
@@ -49,15 +60,56 @@ struct Cat {
 //
 // `dirty_` flags pending NVS writes; main.cpp polls consumeDirty() once
 // per service tick.
+// Tombstone — record of a cat that was hard-removed locally and
+// hasn't yet been reported to the backend via /api/sync. Lives in a
+// small fixed-capacity list inside CatRoster and is persisted to
+// NVS so a reboot mid-sync-cycle doesn't lose the deletion.
+//
+// On the next successful sync, CatRoster::clearPendingDeletes() is
+// called and these rows go away. The server retains tombstones
+// forever (per the sync handoff spec) so this list staying empty
+// after a successful sync doesn't lose any propagation.
+struct CatTombstone {
+    uint8_t id        = 0;
+    int64_t updatedAt = 0;   // unix sec; deletion timestamp drives LWW
+};
+
 class CatRoster {
 public:
     static constexpr int  MAX_CATS = 4;
     static constexpr char DEFAULT_SLUG[] = "C2";  // C2 = happy, the canonical "default cat"
     static constexpr char DEFAULT_NAME[] = "Cat";
 
+    // Threaded clock — main.cpp ticks this once per service tick so
+    // every setter that mutates a cat can stamp updatedAt without
+    // reaching for a global clock or having callers pass `now`.
+    // Lag is at most one tick (1 s); plenty fine for LWW resolution
+    // which only cares about ordering, not microsecond precision.
+    void setNow(int64_t nowSec) { now_ = nowSec; }
+    int64_t now() const { return now_; }
+
     int  count() const { return count_; }
     const Cat& at(int i) const { return cats_[i]; }
     Cat&       at(int i)       { return cats_[i]; }
+
+    // Pending tombstones (local hard-deletes not yet acknowledged by
+    // the server). SyncService reads these to build the request
+    // payload, then calls clearPendingDeletes() on a successful
+    // /api/sync response.
+    int                  pendingDeleteCount() const { return pendingDeleteCount_; }
+    const CatTombstone&  pendingDeleteAt(int i) const { return pendingDeletes_[i]; }
+    void clearPendingDeletes() {
+        if (pendingDeleteCount_ == 0) return;
+        pendingDeleteCount_ = 0;
+        dirty_ = true;
+    }
+    // Used by NVS load to repopulate after a reboot mid-sync-cycle.
+    void appendTombstone(uint8_t id, int64_t updatedAt) {
+        if (pendingDeleteCount_ >= MAX_CATS) return;
+        pendingDeletes_[pendingDeleteCount_].id        = id;
+        pendingDeletes_[pendingDeleteCount_].updatedAt = updatedAt;
+        ++pendingDeleteCount_;
+    }
 
     // Stable id → slot lookup. Used by FeedingService to route events
     // (which carry Cat::id, not slot index) into the right per-cat
@@ -97,15 +149,22 @@ public:
     void setActiveThresholdSec(int64_t v) {
         if (active().hungryThresholdSec == v) return;
         active().hungryThresholdSec = v;
+        active().updatedAt = now_;
         dirty_ = true;
     }
     // Schedule slot-hour mutator — same pattern: wraps via MealSchedule
     // and marks the roster dirty if the value actually changed.
     void setActiveSlotHour(int slot, int hour) {
-        if (active().schedule.setSlotHour(slot, hour)) dirty_ = true;
+        if (active().schedule.setSlotHour(slot, hour)) {
+            active().updatedAt = now_;
+            dirty_ = true;
+        }
     }
     void bumpActiveSlotHour(int slot, int delta) {
-        if (active().schedule.bumpSlotHour(slot, delta)) dirty_ = true;
+        if (active().schedule.bumpSlotHour(slot, delta)) {
+            active().updatedAt = now_;
+            dirty_ = true;
+        }
     }
 
     // Transient per-feed-flow selection — what the next pour will
@@ -144,6 +203,16 @@ public:
     bool remove(int slot) {
         if (slot < 0 || slot >= count_) return false;
         if (count_ <= 1) return false;  // refuse last cat
+        // Capture a tombstone BEFORE the array shift so SyncService
+        // can report the deletion to the server on the next sync.
+        // The tombstone's updatedAt is the deletion timestamp; LWW
+        // on the server side compares this against any conflicting
+        // edit from another device.
+        if (pendingDeleteCount_ < MAX_CATS) {
+            pendingDeletes_[pendingDeleteCount_].id        = cats_[slot].id;
+            pendingDeletes_[pendingDeleteCount_].updatedAt = now_;
+            ++pendingDeleteCount_;
+        }
         for (int i = slot; i < count_ - 1; ++i) {
             cats_[i] = cats_[i + 1];
         }
@@ -174,6 +243,10 @@ public:
         c.portion.loadFromStorage(PortionState::DEFAULT_G);
         c.hungryThresholdSec = Cat::DEFAULT_THRESHOLD_S;
         c.schedule = MealSchedule{};
+        // Sync timestamps stamped at creation (Phase C). Both fields
+        // start equal; updatedAt bumps on every later mutation.
+        c.createdAt = now_;
+        c.updatedAt = now_;
         ++count_;
         dirty_ = true;
         return count_ - 1;
@@ -184,6 +257,7 @@ public:
         if (strncmp(cats_[i].slug, slug, Cat::SLUG_CAP) == 0) return;
         strncpy(cats_[i].slug, slug, Cat::SLUG_CAP - 1);
         cats_[i].slug[Cat::SLUG_CAP - 1] = '\0';
+        cats_[i].updatedAt = now_;
         dirty_ = true;
     }
 
@@ -192,6 +266,7 @@ public:
         if (strncmp(cats_[i].name, name, Cat::NAME_CAP) == 0) return;
         strncpy(cats_[i].name, name, Cat::NAME_CAP - 1);
         cats_[i].name[Cat::NAME_CAP - 1] = '\0';
+        cats_[i].updatedAt = now_;
         dirty_ = true;
     }
 
@@ -199,6 +274,7 @@ public:
         if (i < 0 || i >= count_) return;
         if (cats_[i].avatarColor == color) return;
         cats_[i].avatarColor = color;
+        cats_[i].updatedAt = now_;
         dirty_ = true;
     }
 
@@ -225,7 +301,9 @@ public:
     void appendLoaded(uint8_t id, const char* name, const char* slug,
                       int portionGrams = PortionState::DEFAULT_G,
                       int64_t thresholdSec = Cat::DEFAULT_THRESHOLD_S,
-                      uint32_t avatarColor = 0) {
+                      uint32_t avatarColor = 0,
+                      int64_t createdAt = 0,
+                      int64_t updatedAt = 0) {
         if (count_ >= MAX_CATS) return;
         Cat& c = cats_[count_];
         c.id = id;
@@ -241,6 +319,11 @@ public:
         c.hungryThresholdSec = thresholdSec;
         // Schedule defaults via MealSchedule's ctor; per-slot
         // persistence is a follow-up (no editor exists yet).
+        // Sync timestamps — 0 is the sentinel for "loaded from a
+        // pre-Phase-C NVS snapshot" (first sync's server response
+        // will overwrite both with whatever it has).
+        c.createdAt = createdAt;
+        c.updatedAt = updatedAt;
         ++count_;
         if (id >= nextId_) nextId_ = id + 1;
     }
@@ -260,6 +343,9 @@ private:
     int     activeCatIdx_  = 0;
     int     feedSelection_ = -1;  // FEED_ALL by default (N>=2)
     bool    dirty_         = false;
+    int64_t now_           = 0;          // wall-clock pushed in by main.cpp
+    CatTombstone pendingDeletes_[MAX_CATS]{};
+    int          pendingDeleteCount_ = 0;
 };
 
 }  // namespace feedme::domain

@@ -32,9 +32,15 @@ struct ItemSpec {
 const ItemSpec kItems[HomeView::ITEM_COUNT] = {
     { "Cats",  "*",                "catsList"          },
     { "Users", "U",                "usersList"         },
+    { "Sync",  LV_SYMBOL_REFRESH,  "syncing"           },
     { "Pair",  "Q",                "pairing"           },
     { "Reset", LV_SYMBOL_WARNING,  "resetPairConfirm"  },
 };
+
+// Indices into kItems[] for the rows that need extra rendering /
+// gating logic. Centralised so a future re-order doesn't require
+// hunting through the file.
+constexpr int kSyncIdx = 2;
 
 }  // namespace
 
@@ -134,6 +140,7 @@ void HomeView::redraw() {
 
         // Per-row dynamic value:
         //   Cats / Users  → live count
+        //   Sync          → "—" when unpaired, blank otherwise
         //   Pair / Reset  → no value (action is the destination)
         switch (i) {
             case 0: {
@@ -153,6 +160,18 @@ void HomeView::redraw() {
                     lv_label_set_text(rowValues_[i], buf);
                 } else {
                     lv_label_set_text(rowValues_[i], "-");
+                }
+                break;
+            }
+            case kSyncIdx: {
+                // Greyed-out treatment when no DeviceToken has been
+                // minted yet — the row stays visible (so users learn
+                // the affordance exists) but communicates "not yet".
+                const bool paired = isPaired_ && *isPaired_;
+                lv_label_set_text(rowValues_[i], paired ? "" : "pair first");
+                if (!paired) {
+                    lv_obj_set_style_text_color(rowLabels_[i],
+                        lv_color_hex(kTheme.faint), 0);
                 }
                 break;
             }
@@ -193,6 +212,14 @@ const char* HomeView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press: {
+            // Sync row is gated by the "is paired?" pointer. Tapping
+            // it before pairing would just fail with 401 "device
+            // token required" — refuse the transition and give the
+            // user a hint via the greyed "pair first" value text.
+            if (selectedIdx_ == kSyncIdx && (!isPaired_ || !*isPaired_)) {
+                Serial.println("[home] tap on Sync ignored (not paired)");
+                return nullptr;
+            }
             // Loud serial logging because previous "Pair didn't react"
             // bug reports were hard to triage without it. If you ever
             // see "[home] tap idx=N" but no follow-up screen change,

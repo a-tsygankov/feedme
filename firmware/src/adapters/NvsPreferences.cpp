@@ -269,4 +269,92 @@ void NvsPreferences::setHidResetCount(int value) {
     prefs_.putInt(KEY_HID_RESET_COUNT, value);
 }
 
+// ── Phase C sync state ─────────────────────────────────────────
+//
+// Per-cat / per-user createdAt + updatedAt — keys formatted on the
+// fly via formatKey() with prefixes that fit the NVS 15-char cap
+// even with a 2-digit slot. We keep prefixes tight: "cCa" (Cat
+// CreatedAt), "cUa" (Cat UpdatedAt), "uCa" (User CreatedAt),
+// "uUa" (User UpdatedAt) → e.g. "cCa12" = 5 chars.
+
+int64_t NvsPreferences::getCatCreatedAt(int slot, int64_t defaultValue) {
+    if (!ready_) return defaultValue;
+    char k[12]; formatKey(k, sizeof(k), "cCa", slot);
+    return prefs_.getLong64(k, defaultValue);
+}
+void NvsPreferences::setCatCreatedAt(int slot, int64_t value) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "cCa", slot);
+    prefs_.putLong64(k, value);
+}
+int64_t NvsPreferences::getCatUpdatedAt(int slot, int64_t defaultValue) {
+    if (!ready_) return defaultValue;
+    char k[12]; formatKey(k, sizeof(k), "cUa", slot);
+    return prefs_.getLong64(k, defaultValue);
+}
+void NvsPreferences::setCatUpdatedAt(int slot, int64_t value) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "cUa", slot);
+    prefs_.putLong64(k, value);
+}
+int64_t NvsPreferences::getUserCreatedAt(int slot, int64_t defaultValue) {
+    if (!ready_) return defaultValue;
+    char k[12]; formatKey(k, sizeof(k), "uCa", slot);
+    return prefs_.getLong64(k, defaultValue);
+}
+void NvsPreferences::setUserCreatedAt(int slot, int64_t value) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "uCa", slot);
+    prefs_.putLong64(k, value);
+}
+int64_t NvsPreferences::getUserUpdatedAt(int slot, int64_t defaultValue) {
+    if (!ready_) return defaultValue;
+    char k[12]; formatKey(k, sizeof(k), "uUa", slot);
+    return prefs_.getLong64(k, defaultValue);
+}
+void NvsPreferences::setUserUpdatedAt(int slot, int64_t value) {
+    if (!ready_) return;
+    char k[12]; formatKey(k, sizeof(k), "uUa", slot);
+    prefs_.putLong64(k, value);
+}
+
+// Device identity + token — written by SyncService after a
+// successful pairing handshake; read on every /api/sync. The token
+// can be ~200 chars (HMAC base64url); putString handles up to
+// ~4000-byte values which is plenty.
+bool NvsPreferences::getDeviceId(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_DEVICE_ID, buf, bufLen) > 0;
+}
+void NvsPreferences::setDeviceId(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_DEVICE_ID, value);
+}
+bool NvsPreferences::getDeviceToken(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_DEVICE_TOKEN, buf, bufLen) > 0;
+}
+void NvsPreferences::setDeviceToken(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_DEVICE_TOKEN, value);
+}
+
+bool NvsPreferences::getHomeName(char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    return prefs_.getString(KEY_HOME_NAME, buf, bufLen) > 0;
+}
+void NvsPreferences::setHomeName(const char* value) {
+    if (!ready_ || !value) return;
+    prefs_.putString(KEY_HOME_NAME, value);
+}
+
+int64_t NvsPreferences::getLastSyncAt(int64_t defaultValue) {
+    if (!ready_) return defaultValue;
+    return prefs_.getLong64(KEY_LAST_SYNC_AT, defaultValue);
+}
+void NvsPreferences::setLastSyncAt(int64_t value) {
+    if (!ready_) return;
+    prefs_.putLong64(KEY_LAST_SYNC_AT, value);
+}
+
 }  // namespace feedme::adapters
