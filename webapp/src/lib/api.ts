@@ -109,6 +109,10 @@ async function apiRaw<T>(path: string, opts: ApiOpts = {}): Promise<T> {
 
 // ── Domain types — match the JSON shapes from src/cats.ts etc. ────
 export interface Cat {
+  // 32-char lowercase hex; absent on responses from a pre-Phase-D
+  // backend, present (and stable across renames / slot moves) once
+  // migration 0008 has run. UI code can ignore it for now.
+  uuid?: string;
   slotId: number;
   name: string;
   color: number;            // 0xRRGGBB; 0 = "auto" (let backend pick on save)
@@ -118,6 +122,7 @@ export interface Cat {
 }
 
 export interface User {
+  uuid?: string;            // see Cat.uuid
   slotId: number;
   name: string;
   color: number;

@@ -357,4 +357,32 @@ void NvsPreferences::setLastSyncAt(int64_t value) {
     prefs_.putLong64(KEY_LAST_SYNC_AT, value);
 }
 
+// ── Phase D: per-entity UUIDs ───────────────────────────────────
+//
+// Key prefixes "cUu{slot}" / "uUu{slot}" — 5 chars max, well under
+// NVS's 15-char limit. Empty string is "no uuid yet" — legacy NVS
+// rows fall through to here with a 0-length string until the first
+// sync populates them.
+
+bool NvsPreferences::getCatUuid(int slot, char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    char k[12]; formatKey(k, sizeof(k), "cUu", slot);
+    return prefs_.getString(k, buf, bufLen) > 0;
+}
+void NvsPreferences::setCatUuid(int slot, const char* value) {
+    if (!ready_ || !value) return;
+    char k[12]; formatKey(k, sizeof(k), "cUu", slot);
+    prefs_.putString(k, value);
+}
+bool NvsPreferences::getUserUuid(int slot, char* buf, int bufLen) {
+    if (!ready_ || !buf || bufLen <= 0) return false;
+    char k[12]; formatKey(k, sizeof(k), "uUu", slot);
+    return prefs_.getString(k, buf, bufLen) > 0;
+}
+void NvsPreferences::setUserUuid(int slot, const char* value) {
+    if (!ready_ || !value) return;
+    char k[12]; formatKey(k, sizeof(k), "uUu", slot);
+    prefs_.putString(k, value);
+}
+
 }  // namespace feedme::adapters

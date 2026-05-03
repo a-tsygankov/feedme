@@ -101,8 +101,15 @@ CREATE TABLE IF NOT EXISTS cats (
   -- 0..23 matching firmware's MealSchedule (Breakfast / Lunch /
   -- Dinner / Treat). Sync round-trips this verbatim.
   schedule_hours       TEXT NOT NULL DEFAULT '[7,12,18,21]',
+  -- Stable per-cat identity (migration 0008). 32-char lowercase hex
+  -- (16 random bytes). Decouples row identity from the device-local
+  -- slot_id so two devices each adding "slot 0" don't collide on
+  -- first sync. Backfilled to randomblob() on existing rows. Unique
+  -- index lives in the IF NOT EXISTS block below.
+  uuid                 TEXT,
   PRIMARY KEY (hid, slot_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cats_uuid ON cats(uuid);
 
 -- ── Users ─────────────────────────────────────────────────────────
 -- Mirrors the firmware's UserRoster. Same composite-PK pattern as
@@ -118,8 +125,11 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL DEFAULT 1735689600,
   updated_at INTEGER NOT NULL DEFAULT 1735689600,
   is_deleted INTEGER NOT NULL DEFAULT 0,
+  -- Stable identity (migration 0008). See cats.uuid for rationale.
+  uuid       TEXT,
   PRIMARY KEY (hid, slot_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uuid ON users(uuid);
 
 -- ── Sync support tables (migration 0006) ─────────────────────────
 -- See docs/sync-implementation-handoff.md §4.2.

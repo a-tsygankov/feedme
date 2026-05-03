@@ -66,6 +66,15 @@ npm run db:apply:remote -- --file=./migrations/0002_webapp_tables.sql
   errors with "duplicate column name" if already applied — safe to
   ignore.
 
+- **`0008_entity_uuids.sql`** — adds `uuid TEXT` (32-char lowercase
+  hex) + unique index to cats and users. Backfills existing rows
+  with random UUIDs via `lower(hex(randomblob(16)))`. Decouples
+  per-row identity from `slot_id` (a device-local rendering hint
+  reused after delete) so multi-device adds don't collide on first
+  sync. `ALTER TABLE ADD COLUMN` errors on re-run with "duplicate
+  column name" — safe to ignore. The UPDATE is idempotent (only
+  touches `uuid IS NULL OR uuid = ''`).
+
 ## What about `schema.sql`?
 
 `schema.sql` is the **canonical full schema** — what a brand-new

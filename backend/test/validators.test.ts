@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateHomeName } from "../src/validators";
 import { validateDeviceId } from "../src/pair";
-import { isInt, isSyncCat, isSyncUser, parseSchedule } from "../src/sync";
+import { isInt, isSyncCat, isSyncUser, isUuid, parseSchedule } from "../src/sync";
 
 // Pure-function tests — no Workers runtime, no D1, no fetch.
 // These cover the input-validation surface that gates every API
@@ -68,6 +68,48 @@ describe("validateDeviceId", () => {
     expect(validateDeviceId("feedme/abc")).toBeNull();    // slash — URL-injection risk
     expect(validateDeviceId("feedme.abc")).toBeNull();    // dot
     expect(validateDeviceId("feedme'or'1")).toBeNull();   // SQL-injection canary
+  });
+});
+
+describe("isUuid", () => {
+  it("accepts 32-char lowercase hex", () => {
+    expect(isUuid("a8b3c1d4e5f60123456789abcdef0123")).toBe(true);
+    expect(isUuid("0".repeat(32))).toBe(true);
+    expect(isUuid("ffffffffffffffffffffffffffffffff")).toBe(true);
+  });
+  it("rejects wrong length", () => {
+    expect(isUuid("a8b3c1d4e5f60123456789abcdef012")).toBe(false);   // 31
+    expect(isUuid("a8b3c1d4e5f60123456789abcdef01234")).toBe(false); // 33
+    expect(isUuid("")).toBe(false);
+  });
+  it("rejects uppercase + non-hex chars", () => {
+    expect(isUuid("A8B3C1D4E5F60123456789ABCDEF0123")).toBe(false);
+    expect(isUuid("g8b3c1d4e5f60123456789abcdef0123")).toBe(false);  // g not hex
+    expect(isUuid("a8b3c1d4-e5f6-0123-4567-89abcdef0123")).toBe(false); // hyphenated
+  });
+  it("rejects non-string", () => {
+    expect(isUuid(null)).toBe(false);
+    expect(isUuid(undefined)).toBe(false);
+    expect(isUuid(123)).toBe(false);
+  });
+});
+
+describe("isSyncCat with optional uuid", () => {
+  const valid = {
+    slotId: 0, name: "Mochi", color: 0, slug: "C2",
+    defaultPortionG: 40, hungryThresholdSec: 18000,
+    scheduleHours: [7, 12, 18, 21],
+    createdAt: 1700000000, updatedAt: 1700000000, isDeleted: false,
+  };
+  it("accepts a cat without uuid (legacy)", () => {
+    expect(isSyncCat(valid)).toBe(true);
+  });
+  it("accepts a cat with valid uuid", () => {
+    expect(isSyncCat({ ...valid, uuid: "0".repeat(32) })).toBe(true);
+  });
+  it("rejects a cat with malformed uuid", () => {
+    expect(isSyncCat({ ...valid, uuid: "not-a-uuid" })).toBe(false);
+    expect(isSyncCat({ ...valid, uuid: "A".repeat(32) })).toBe(false); // uppercase
   });
 });
 

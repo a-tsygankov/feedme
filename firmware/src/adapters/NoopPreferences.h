@@ -220,6 +220,28 @@ public:
     void setDeviceId(const char*) override    {}
     bool getDeviceToken(char*, int) override  { return false; }
     void setDeviceToken(const char*) override {}
+    bool getCatUuid(int slot, char* buf, int bufLen) override {
+        if (slot < 0 || slot >= 4 || !catUuidSet_[slot] || !buf || bufLen <= 0) return false;
+        const char* src = catUuid_[slot];
+        int i = 0; while (src[i] && i < bufLen - 1) { buf[i] = src[i]; ++i; } buf[i] = '\0';
+        return true;
+    }
+    void setCatUuid(int slot, const char* v) override {
+        if (slot < 0 || slot >= 4 || !v) return;
+        int i = 0; while (v[i] && i < 32) { catUuid_[slot][i] = v[i]; ++i; } catUuid_[slot][i] = '\0';
+        catUuidSet_[slot] = true;
+    }
+    bool getUserUuid(int slot, char* buf, int bufLen) override {
+        if (slot < 0 || slot >= 4 || !userUuidSet_[slot] || !buf || bufLen <= 0) return false;
+        const char* src = userUuid_[slot];
+        int i = 0; while (src[i] && i < bufLen - 1) { buf[i] = src[i]; ++i; } buf[i] = '\0';
+        return true;
+    }
+    void setUserUuid(int slot, const char* v) override {
+        if (slot < 0 || slot >= 4 || !v) return;
+        int i = 0; while (v[i] && i < 32) { userUuid_[slot][i] = v[i]; ++i; } userUuid_[slot][i] = '\0';
+        userUuidSet_[slot] = true;
+    }
     bool getHomeName(char*, int) override     { return false; }
     void setHomeName(const char*) override    {}
     int64_t getLastSyncAt(int64_t d) override { return lastSyncSet_ ? lastSync_ : d; }
@@ -284,6 +306,10 @@ private:
     bool     userUpdatedAtSet_[4]= {false};
     int64_t  lastSync_         = 0;
     bool     lastSyncSet_      = false;
+    char     catUuid_   [4][33] = {{0}};
+    bool     catUuidSet_[4]     = {false};
+    char     userUuid_  [4][33] = {{0}};
+    bool     userUuidSet_[4]    = {false};
 };
 
 }  // namespace feedme::adapters
