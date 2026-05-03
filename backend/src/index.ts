@@ -25,6 +25,7 @@ import {
   patchHomeSettings,
 } from "./home_settings";
 import {
+  confirmPairingFor,
   deletePair,
   getPairCheck,
   getPairList,
@@ -294,16 +295,6 @@ export default {
         await env.DB.prepare(
           "INSERT INTO households (hid, pin_salt, pin_hash, created_at, name) VALUES (?, ?, ?, ?, ?)",
         ).bind(hid, salt, hash, now, hid).run();
-
-        // Claim the device that scanned the QR, if one was passed.
-        if (body.deviceId && typeof body.deviceId === "string") {
-          await env.DB.prepare(
-            "INSERT OR REPLACE INTO devices (device_id, home_hid, joined_at) VALUES (?, ?, ?)",
-          ).bind(body.deviceId, hid, now).run();
-          console.log(`[auth] setup '${hid}' claimed device '${body.deviceId}'`);
-        } else {
-          console.log(`[auth] setup '${hid}' (no device to claim)`);
-        }
       } catch (e) {
         // Surface the underlying error so the client can show
         // something useful instead of a generic 500. Most likely
@@ -315,12 +306,40 @@ export default {
         return json({ error: `setup failed: ${msg}` }, { status: 500 });
       }
 
+      // Inline pair-confirm (Phase F+ workflow): if the user came
+      // from a device QR (deviceId present), claim the device into
+      // this home AND complete the pair handshake in one shot. The
+      // device's next /pair/check returns confirmed within ~15s; no
+      // banner-click step on the dashboard. If the device's pair
+      // window has expired (rare — household creation usually races
+      // ahead of the 3-min timer), we surface that to the webapp
+      // via pairError so it can show a recovery toast without
+      // failing the auth (the household + UserToken are still good).
+      let pairError: string | undefined;
+      if (body.deviceId && typeof body.deviceId === "string" && body.deviceId.trim()) {
+        const pair = await confirmPairingFor(
+          env, hid, body.deviceId.trim(), resolveSecret(env),
+        );
+        if (!pair.ok) {
+          console.warn(`[auth] setup '${hid}' pair-confirm failed: ${pair.error}`);
+          pairError = pair.error;
+        } else {
+          console.log(`[auth] setup '${hid}' paired device '${body.deviceId}'`);
+        }
+      } else {
+        console.log(`[auth] setup '${hid}' (no device to pair)`);
+      }
+
       const token = await issueToken(hid, resolveSecret(env));
       // Phase F — also set the session cookie so browser-based clients
       // get sticky auth without juggling Authorization headers in JS.
       // The token is still returned in the body for non-browser callers
       // (firmware smoke tests, curl).
-      return json({ token, hid }, { status: 200 }, buildSessionCookie(token));
+      return json(
+        { token, hid, ...(pairError ? { pairError } : {}) },
+        { status: 200 },
+        buildSessionCookie(token),
+      );
     }
 
     // POST /api/auth/login { hid, pin, deviceId? } → { token, hid }
@@ -359,29 +378,33 @@ export default {
       const ok = await verifyPin(body.pin, row.pin_salt, row.pin_hash);
       if (!ok) return json({ error: "wrong PIN" }, { status: 401 });
 
-      // Optional device claim. We use INSERT OR REPLACE so re-claiming
-      // an already-paired device just updates the joined_at timestamp
-      // (and atomically moves it to a different home if the user
-      // signed in elsewhere).
-      if (body.deviceId && typeof body.deviceId === "string") {
-        try {
-          await env.DB.prepare(
-            "INSERT OR REPLACE INTO devices (device_id, home_hid, joined_at) VALUES (?, ?, ?)",
-          ).bind(body.deviceId, hid, Math.floor(Date.now() / 1000)).run();
-          console.log(`[auth] login '${hid}' claimed device '${body.deviceId}'`);
-        } catch (e) {
-          // Don't fail the login on a claim-write error; just log.
-          // The user will see they're signed in, and the device can
-          // re-claim on the next QR scan. Most likely cause: missing
-          // devices table → migration 0004 not applied.
-          console.error(`[auth] device claim failed: ${e instanceof Error ? e.message : e}`);
+      // Inline pair-confirm (Phase F+ workflow): same as /api/auth/setup
+      // — if the user came from a device QR, complete the pair handshake
+      // here so the firmware's /pair/check picks up the DeviceToken
+      // without a banner-click step on the dashboard. pairError is
+      // returned for the webapp to surface as a toast; the auth itself
+      // succeeds either way.
+      let pairError: string | undefined;
+      if (body.deviceId && typeof body.deviceId === "string" && body.deviceId.trim()) {
+        const pair = await confirmPairingFor(
+          env, hid, body.deviceId.trim(), resolveSecret(env),
+        );
+        if (!pair.ok) {
+          console.warn(`[auth] login '${hid}' pair-confirm failed: ${pair.error}`);
+          pairError = pair.error;
+        } else {
+          console.log(`[auth] login '${hid}' paired device '${body.deviceId}'`);
         }
       }
 
       const token = await issueToken(hid, resolveSecret(env));
       // Phase F — also set the session cookie. See /api/auth/setup for
       // rationale; same Max-Age + HttpOnly + Secure + SameSite=Lax.
-      return json({ token, hid }, { status: 200 }, buildSessionCookie(token));
+      return json(
+        { token, hid, ...(pairError ? { pairError } : {}) },
+        { status: 200 },
+        buildSessionCookie(token),
+      );
     }
 
     // ── Phase F: transparent accounts + Login QR + set-PIN ────────

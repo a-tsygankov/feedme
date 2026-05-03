@@ -154,15 +154,29 @@ describe("postQuickSetup", () => {
   });
 
   it("creates household + pairings + devices + updates pending_pairings, returns 200 + cookie", async () => {
+    // SQL order (post-confirmPairingFor refactor):
+    //   1. existing-pairing check (none)
+    //   2. pre-check pending_pairings (fresh, not cancelled)
+    //   3. INSERT households
+    //   4. confirmPairingFor: re-read pending_pairings (fresh)
+    //   5. confirmPairingFor: SELECT pairings (none — first time for this device)
+    //   6. confirmPairingFor: INSERT pairings
+    //   7. confirmPairingFor: INSERT devices
+    //   8. confirmPairingFor: UPDATE pending_pairings { confirmed_at, device_token }
     const now = Math.floor(Date.now() / 1000);
     const householdParams: unknown[][] = [];
     const pendingUpdateParams: unknown[][] = [];
     const { env, consumed } = makeMockEnv([
       { match: "SELECT home_hid FROM pairings", first: null },
       { match: "FROM pending_pairings",
-        first: { requested_at: now - 5, expires_at: now + 175, cancelled_at: null } },
+        first: { expires_at: now + 175, cancelled_at: null, confirmed_at: null } },
       { match: ["INSERT INTO households", "pin_salt"],
         capture: (p) => householdParams.push(p) },
+      // confirmPairingFor's full row read (extra columns).
+      { match: ["FROM pending_pairings", "home_hid"],
+        first: { expires_at: now + 175, home_hid: null,
+                 confirmed_at: null, cancelled_at: null } },
+      { match: ["SELECT id, is_deleted FROM pairings"], first: null },
       { match: "INSERT INTO pairings" },
       { match: ["INSERT INTO devices", "ON CONFLICT"] },
       { match: ["UPDATE pending_pairings", "device_token"],
@@ -170,15 +184,14 @@ describe("postQuickSetup", () => {
     ]);
     const res = await postQuickSetup(env, { deviceId: "feedme-fresh" }, SECRET);
     expect(res.status).toBe(200);
-    expect(consumed.i).toBe(6);
+    expect(consumed.i).toBe(8);
     const body = await res.json() as { token: string; hid: string };
     expect(body.hid).toMatch(/^home-[0-9a-f]{16}$/);
     // Household INSERT was given empty pin_salt (transparent sentinel).
     expect(householdParams[0]?.[0]).toBe(body.hid);
-    // pending_pairings UPDATE got a real DeviceToken with the right
-    // (hid, deviceId) embedded — the regression-from-pair.ts that
-    // crossed the args would manifest here as the verifyToken
-    // discriminant being wrong.
+    // pending_pairings UPDATE bound to (hid, now, device_token, deviceId).
+    // The DeviceToken embeds (hid, deviceId) — verify the pair.ts
+    // regression-from-2024 (args crossed) hasn't reappeared.
     const dt = pendingUpdateParams[0]?.[2] as string;
     expect(typeof dt).toBe("string");
     const payload = await verifyToken(dt, SECRET);

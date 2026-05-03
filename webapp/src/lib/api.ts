@@ -187,15 +187,21 @@ export const api = {
   // no control chars, must be unique). On success returns a session
   // token bound to the same hid; caller should auth.set + navigate.
   // 409 → name taken (caller should redirect to login with hid prefilled).
+  //
+  // pairError (Phase F+ workflow): when deviceId is passed, the
+  // backend completes the pair handshake inline and returns this
+  // field iff that step failed (e.g. device's pair window expired).
+  // Auth itself still succeeds — caller can flash a toast.
   setup: (hid: string, pin: string, deviceId?: string) =>
-    apiRaw<{ token: string; hid: string }>(
+    apiRaw<{ token: string; hid: string; pairError?: string }>(
       "/api/auth/setup",
       { method: "POST", body: { hid, pin, deviceId } },
     ),
   // Authenticates against an EXISTING home. Same shape as setup +
-  // 401 (wrong PIN) / 404 (no such home).
+  // 401 (wrong PIN) / 404 (no such home). pairError semantics match
+  // setup() above.
   login: (hid: string, pin: string, deviceId?: string) =>
-    apiRaw<{ token: string; hid: string }>(
+    apiRaw<{ token: string; hid: string; pairError?: string }>(
       "/api/auth/login",
       { method: "POST", body: { hid, pin, deviceId } },
     ),

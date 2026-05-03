@@ -37,10 +37,11 @@
 // don't open-code the check.
 
 import {
-  hashPin, isTransparentHome, issueDeviceToken, issueUserToken,
+  hashPin, isTransparentHome, issueUserToken,
   buildSessionCookie, type AuthInfo,
 } from "./auth";
 import type { Env } from "./env";
+import { confirmPairingFor } from "./pair";
 
 const QR_TOKEN_TTL_SEC      = 60;      // single-use, very short — UX = scan in <60 s
 const QUICK_SETUP_PREFIX    = "home-"; // prepended to the random hid
@@ -107,16 +108,17 @@ export async function postQuickSetup(
     );
   }
 
-  // Validate the device's pending_pairings row exists and is fresh
-  // BEFORE creating any rows. If the device's /pair/start window
-  // expired, we want to refuse the whole operation rather than create
-  // an orphan household the firmware can't actually find.
+  // Pre-check: validate pending_pairings is fresh BEFORE we create
+  // any rows. Avoids leaving an orphan household behind when the
+  // device's pair window expired between QR-scan and submit. Same
+  // queries as confirmPairingFor's first step (it re-validates as
+  // defence in depth), but bailing here means no rollback to do.
   const now = Math.floor(Date.now() / 1000);
   const pending = await env.DB.prepare(
-    `SELECT requested_at, expires_at, cancelled_at
+    `SELECT expires_at, cancelled_at, confirmed_at
      FROM pending_pairings WHERE device_id = ?`,
   ).bind(deviceId).first<{
-    requested_at: number; expires_at: number; cancelled_at: number | null;
+    expires_at: number; cancelled_at: number | null; confirmed_at: number | null;
   }>();
   if (!pending) {
     return json(
@@ -130,7 +132,7 @@ export async function postQuickSetup(
       { status: 410 },
     );
   }
-  if (pending.expires_at <= now) {
+  if (pending.expires_at <= now && !pending.confirmed_at) {
     return json(
       { error: "device's pairing window expired — re-tap Pair on the device" },
       { status: 410 },
@@ -138,12 +140,10 @@ export async function postQuickSetup(
   }
 
   // Fresh transparent home: generate hid, insert with empty
-  // pin_salt/pin_hash (the "no PIN" sentinel), claim the device.
+  // pin_salt/pin_hash (the "no PIN" sentinel), then complete pairing
+  // inline via confirmPairingFor so the device's next /pair/check
+  // returns confirmed without any further user interaction.
   const hid = QUICK_SETUP_PREFIX + randomHex(QUICK_SETUP_RAND_HEX);
-  // Mint the DeviceToken up front; it goes into both the response
-  // path (cookie/UserToken for the webapp) and the pending_pairings
-  // row (for the firmware to pick up on its next /pair/check).
-  const deviceToken = await issueDeviceToken(hid, deviceId, secret);
 
   try {
     await env.DB.prepare(
@@ -151,39 +151,18 @@ export async function postQuickSetup(
          (hid, pin_salt, pin_hash, created_at, name, updated_at, is_deleted)
        VALUES (?, '', '', ?, '', ?, 0)`,
     ).bind(hid, now, now).run();
-
-    // Active pairings row — this IS the canonical record now (no
-    // /pair/confirm round-trip will rewrite it). Same shape as the
-    // INSERT in pair.ts's postPairConfirm.
-    await env.DB.prepare(
-      `INSERT INTO pairings (device_id, home_hid, created_at, updated_at, is_deleted)
-       VALUES (?, ?, ?, ?, 0)`,
-    ).bind(deviceId, hid, now, now).run();
-
-    // Mirror into the legacy devices table so /api/feed translation
-    // (the firmware-facing path) finds this home immediately, before
-    // the device upgrades to the device-token sync path.
-    await env.DB.prepare(
-      `INSERT INTO devices (device_id, home_hid, joined_at, created_at, updated_at, is_deleted)
-       VALUES (?, ?, ?, ?, ?, 0)
-       ON CONFLICT(device_id) DO UPDATE SET
-         home_hid = excluded.home_hid, updated_at = excluded.updated_at, is_deleted = 0`,
-    ).bind(deviceId, hid, now, now, now).run();
-
-    // Write the DeviceToken into pending_pairings so the device's
-    // next /api/pair/check returns "confirmed". Without this the
-    // firmware would stay stuck on its Pairing... screen until its
-    // local 3-min timer expired, even though the household + pairings
-    // rows were created successfully.
-    await env.DB.prepare(
-      `UPDATE pending_pairings
-         SET home_hid = ?, confirmed_at = ?, device_token = ?
-       WHERE device_id = ?`,
-    ).bind(hid, now, deviceToken, deviceId).run();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`[quick-setup] insert failed: ${msg}`);
+    console.error(`[quick-setup] household insert failed: ${msg}`);
     return json({ error: `quick-setup failed: ${msg}` }, { status: 500 });
+  }
+
+  // Defence-in-depth: helper re-validates pending_pairings (could
+  // race with /api/pair/cancel) and does the full claim work.
+  const pair = await confirmPairingFor(env, hid, deviceId, secret);
+  if (!pair.ok) {
+    console.warn(`[quick-setup] '${hid}' created but pairing failed (race?): ${pair.error}`);
+    return json({ error: pair.error }, { status: pair.status });
   }
 
   const userToken = await issueUserToken(hid, secret);
