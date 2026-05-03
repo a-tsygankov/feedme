@@ -180,6 +180,14 @@ public:
     virtual bool getDeviceToken(char* buf, int bufLen) = 0;
     virtual void setDeviceToken(const char* value) = 0;
 
+    // Per-entity UUID (Phase D). 32-char lowercase hex; empty
+    // string for legacy NVS rows that haven't been through a sync
+    // yet. Populated from the first sync response.
+    virtual bool getCatUuid (int slot, char* buf, int bufLen) = 0;
+    virtual void setCatUuid (int slot, const char* value) = 0;
+    virtual bool getUserUuid(int slot, char* buf, int bufLen) = 0;
+    virtual void setUserUuid(int slot, const char* value) = 0;
+
     // Cached home name (= households.hid on the server). Populated
     // when the device receives the confirmed-pairing response so
     // offline screens can show "Smith Family" without a round-trip.

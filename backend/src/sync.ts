@@ -44,7 +44,13 @@ const json = (data: unknown, init: ResponseInit = {}) =>
   });
 
 // Wire-format types — match docs/sync-implementation-handoff.md §5.1.
+//
+// Phase D: `uuid` is the canonical identity. slotId is now device-
+// local rendering ordering. Legacy clients that don't send uuid fall
+// through to (hid, slot_id) lookup; the response always includes
+// uuid so the client picks it up + uses it on the next sync.
 interface SyncCat {
+  uuid?:              string;     // 32-char lowercase hex; optional on req
   slotId:             number;
   name:               string;
   color:              number;
@@ -58,6 +64,7 @@ interface SyncCat {
 }
 
 interface SyncUser {
+  uuid?:     string;     // 32-char lowercase hex; optional on req
   slotId:    number;
   name:      string;
   color:     number;
@@ -85,9 +92,16 @@ interface SyncRequest {
 export function isInt(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && Number.isInteger(n);
 }
+// 32-char lowercase hex (16 bytes). Lowercase enforced so two
+// devices that disagree on case can't both register the "same" uuid.
+const UUID_RE = /^[0-9a-f]{32}$/;
+export function isUuid(x: unknown): x is string {
+  return typeof x === "string" && UUID_RE.test(x);
+}
 export function isSyncCat(c: unknown): c is SyncCat {
   if (typeof c !== "object" || c === null) return false;
   const o = c as Record<string, unknown>;
+  if (o.uuid !== undefined && !isUuid(o.uuid))                          return false;
   if (!isInt(o.slotId) || o.slotId < 0 || o.slotId > 255)              return false;
   if (typeof o.name !== "string")                                       return false;
   if (!isInt(o.color))                                                  return false;
@@ -103,6 +117,7 @@ export function isSyncCat(c: unknown): c is SyncCat {
 export function isSyncUser(u: unknown): u is SyncUser {
   if (typeof u !== "object" || u === null) return false;
   const o = u as Record<string, unknown>;
+  if (o.uuid !== undefined && !isUuid(o.uuid))             return false;
   if (!isInt(o.slotId) || o.slotId < 0 || o.slotId > 255) return false;
   if (typeof o.name !== "string")                          return false;
   if (!isInt(o.color))                                     return false;
@@ -136,59 +151,103 @@ async function mergeHome(env: Env, hid: string, h: SyncHome): Promise<number> {
   return Math.abs(h.updatedAt - row.updated_at) < CONFLICT_WINDOW_SEC ? 1 : 0;
 }
 
-async function mergeCat(env: Env, hid: string, c: SyncCat): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT updated_at FROM cats WHERE hid = ? AND slot_id = ?",
-  ).bind(hid, c.slotId).first<{ updated_at: number }>();
+// uuid lookup wins over (hid, slot_id) when the client provides one.
+// Lets two devices each adding "slot 0" coexist as separate rows
+// keyed by their UUIDs — Phase D's whole point.
+async function findCatRow(
+  env: Env, hid: string, c: SyncCat,
+): Promise<{ updated_at: number; uuid: string | null; slot_id: number } | null> {
+  if (c.uuid) {
+    const byUuid = await env.DB.prepare(
+      "SELECT updated_at, uuid, slot_id FROM cats WHERE hid = ? AND uuid = ?",
+    ).bind(hid, c.uuid).first<{ updated_at: number; uuid: string | null; slot_id: number }>();
+    if (byUuid) return byUuid;
+  }
+  // Fallback: legacy device that doesn't know its uuid yet (or a
+  // brand-new uuid that doesn't exist server-side). Matches by
+  // (hid, slot_id) so the response can teach the client its uuid.
+  return await env.DB.prepare(
+    "SELECT updated_at, uuid, slot_id FROM cats WHERE hid = ? AND slot_id = ?",
+  ).bind(hid, c.slotId).first<{ updated_at: number; uuid: string | null; slot_id: number }>();
+}
 
+// Generate a 32-char lowercase hex UUID matching the firmware's
+// format (`esp_random()` 4× joined). Server uses crypto.randomUUID
+// then strips the hyphens and lowercases — same entropy.
+function newUuid(): string {
+  return crypto.randomUUID().replace(/-/g, "").toLowerCase();
+}
+
+async function mergeCat(env: Env, hid: string, c: SyncCat): Promise<number> {
+  const row = await findCatRow(env, hid, c);
   const scheduleJson = JSON.stringify(c.scheduleHours);
+  // Resolve final uuid: client's wins if present, else server's
+  // existing row, else mint a fresh one for INSERT.
+  const uuid = c.uuid ?? row?.uuid ?? newUuid();
 
   if (!row) {
-    // Server didn't know about this cat. INSERT verbatim.
+    // Server didn't know about this cat (under either uuid OR slot_id
+    // — both lookups missed). INSERT verbatim with the resolved uuid.
     await env.DB.prepare(
       `INSERT INTO cats
         (hid, slot_id, name, color, slug, default_portion_g,
          hungry_threshold_sec, schedule_hours,
-         created_at, updated_at, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         created_at, updated_at, is_deleted, uuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(hid, c.slotId, c.name, c.color, c.slug,
            c.defaultPortionG, c.hungryThresholdSec, scheduleJson,
-           c.createdAt, c.updatedAt, c.isDeleted ? 1 : 0).run();
+           c.createdAt, c.updatedAt, c.isDeleted ? 1 : 0, uuid).run();
     return 0;
   }
 
   const conflict = Math.abs(c.updatedAt - row.updated_at) < CONFLICT_WINDOW_SEC ? 1 : 0;
   if (c.updatedAt <= row.updated_at) return conflict;     // server wins
 
-  // Client wins → UPDATE. We keep `deleted_at` legacy column in sync
-  // with `is_deleted` so any not-yet-migrated reader sees consistent
-  // tombstones.
+  // Client wins → UPDATE. Backfill uuid if the row was missing one
+  // (legacy migration: row created before migration 0008 ran).
+  // Use the row's slot_id (not c.slotId) to handle the case where
+  // the client renumbered slots locally but the uuid still matches.
   await env.DB.prepare(
     `UPDATE cats SET name = ?, color = ?, slug = ?,
        default_portion_g = ?, hungry_threshold_sec = ?, schedule_hours = ?,
        updated_at = ?, is_deleted = ?,
-       deleted_at = CASE WHEN ? = 1 THEN ? ELSE NULL END
+       deleted_at = CASE WHEN ? = 1 THEN ? ELSE NULL END,
+       uuid = COALESCE(uuid, ?)
      WHERE hid = ? AND slot_id = ?`,
   ).bind(c.name, c.color, c.slug,
          c.defaultPortionG, c.hungryThresholdSec, scheduleJson,
          c.updatedAt, c.isDeleted ? 1 : 0,
          c.isDeleted ? 1 : 0, c.updatedAt,
-         hid, c.slotId).run();
+         uuid,
+         hid, row.slot_id).run();
   return conflict;
 }
 
+async function findUserRow(
+  env: Env, hid: string, u: SyncUser,
+): Promise<{ updated_at: number; uuid: string | null; slot_id: number } | null> {
+  if (u.uuid) {
+    const byUuid = await env.DB.prepare(
+      "SELECT updated_at, uuid, slot_id FROM users WHERE hid = ? AND uuid = ?",
+    ).bind(hid, u.uuid).first<{ updated_at: number; uuid: string | null; slot_id: number }>();
+    if (byUuid) return byUuid;
+  }
+  return await env.DB.prepare(
+    "SELECT updated_at, uuid, slot_id FROM users WHERE hid = ? AND slot_id = ?",
+  ).bind(hid, u.slotId).first<{ updated_at: number; uuid: string | null; slot_id: number }>();
+}
+
 async function mergeUser(env: Env, hid: string, u: SyncUser): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT updated_at FROM users WHERE hid = ? AND slot_id = ?",
-  ).bind(hid, u.slotId).first<{ updated_at: number }>();
+  const row = await findUserRow(env, hid, u);
+  const uuid = u.uuid ?? row?.uuid ?? newUuid();
 
   if (!row) {
     await env.DB.prepare(
       `INSERT INTO users
-        (hid, slot_id, name, color, created_at, updated_at, is_deleted)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (hid, slot_id, name, color, created_at, updated_at, is_deleted, uuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(hid, u.slotId, u.name, u.color,
-           u.createdAt, u.updatedAt, u.isDeleted ? 1 : 0).run();
+           u.createdAt, u.updatedAt, u.isDeleted ? 1 : 0, uuid).run();
     return 0;
   }
 
@@ -198,12 +257,14 @@ async function mergeUser(env: Env, hid: string, u: SyncUser): Promise<number> {
   await env.DB.prepare(
     `UPDATE users SET name = ?, color = ?,
        updated_at = ?, is_deleted = ?,
-       deleted_at = CASE WHEN ? = 1 THEN ? ELSE NULL END
+       deleted_at = CASE WHEN ? = 1 THEN ? ELSE NULL END,
+       uuid = COALESCE(uuid, ?)
      WHERE hid = ? AND slot_id = ?`,
   ).bind(u.name, u.color,
          u.updatedAt, u.isDeleted ? 1 : 0,
          u.isDeleted ? 1 : 0, u.updatedAt,
-         hid, u.slotId).run();
+         uuid,
+         hid, row.slot_id).run();
   return conflict;
 }
 
@@ -231,26 +292,29 @@ async function readHomeState(env: Env, hid: string): Promise<{
   const catsRes = await env.DB.prepare(
     `SELECT slot_id, name, color, slug, default_portion_g,
             hungry_threshold_sec, schedule_hours,
-            created_at, updated_at, is_deleted
+            created_at, updated_at, is_deleted, uuid
      FROM cats WHERE hid = ?`,
   ).bind(hid).all<{
     slot_id: number; name: string; color: number; slug: string;
     default_portion_g: number; hungry_threshold_sec: number;
     schedule_hours: string;
     created_at: number; updated_at: number; is_deleted: number;
+    uuid: string | null;
   }>();
 
   const usersRes = await env.DB.prepare(
-    `SELECT slot_id, name, color, created_at, updated_at, is_deleted
+    `SELECT slot_id, name, color, created_at, updated_at, is_deleted, uuid
      FROM users WHERE hid = ?`,
   ).bind(hid).all<{
     slot_id: number; name: string; color: number;
     created_at: number; updated_at: number; is_deleted: number;
+    uuid: string | null;
   }>();
 
   return {
     home: { name: homeRow?.name ?? hid, updatedAt: homeRow?.updated_at ?? 0 },
     cats: (catsRes.results ?? []).map(r => ({
+      uuid:               r.uuid ?? undefined,
       slotId:             r.slot_id,
       name:               r.name,
       color:              r.color,
@@ -263,6 +327,7 @@ async function readHomeState(env: Env, hid: string): Promise<{
       isDeleted:          !!r.is_deleted,
     })),
     users: (usersRes.results ?? []).map(r => ({
+      uuid:      r.uuid ?? undefined,
       slotId:    r.slot_id,
       name:      r.name,
       color:     r.color,

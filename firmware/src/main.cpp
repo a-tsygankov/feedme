@@ -434,6 +434,10 @@ void setup() {
             // first sync overwrites with server-canonical timestamps.
             const int64_t catCreatedAt = prefs.getCatCreatedAt(i, 0);
             const int64_t catUpdatedAt = prefs.getCatUpdatedAt(i, 0);
+            // Phase D: stable per-cat uuid (32-hex). Empty string =
+            // "no uuid yet" — server backfills on first sync.
+            char catUuidBuf[feedme::domain::Cat::UUID_CAP] = {0};
+            const bool haveCatUuid = prefs.getCatUuid(i, catUuidBuf, sizeof(catUuidBuf));
             roster.appendLoaded(static_cast<uint8_t>(id),
                                 haveName ? nameBuf : nullptr,
                                 haveSlug ? slugBuf : nullptr,
@@ -441,7 +445,8 @@ void setup() {
                                 threshold,
                                 color,
                                 catCreatedAt,
-                                catUpdatedAt);
+                                catUpdatedAt,
+                                haveCatUuid ? catUuidBuf : nullptr);
             // Per-slot schedule hours layer on top of the defaults
             // already populated by appendLoaded → MealSchedule's ctor.
             // Reach into the cat we just appended (count_-1) and
@@ -493,11 +498,14 @@ void setup() {
             const uint32_t color = prefs.getUserColor(i, 0);
             const int64_t userCreatedAt = prefs.getUserCreatedAt(i, 0);
             const int64_t userUpdatedAt = prefs.getUserUpdatedAt(i, 0);
+            char userUuidBuf[feedme::domain::User::UUID_CAP] = {0};
+            const bool haveUserUuid = prefs.getUserUuid(i, userUuidBuf, sizeof(userUuidBuf));
             roster.appendLoaded(static_cast<uint8_t>(id),
                                 haveName ? nameBuf : nullptr,
                                 color,
                                 userCreatedAt,
-                                userUpdatedAt);
+                                userUpdatedAt,
+                                haveUserUuid ? userUuidBuf : nullptr);
         }
         roster.seedDefaultIfEmpty();
         roster.markClean();
@@ -837,6 +845,9 @@ void loop() {
                 // bumped by whichever setter triggered the dirty flag.
                 prefs.setCatCreatedAt(i, roster.at(i).createdAt);
                 prefs.setCatUpdatedAt(i, roster.at(i).updatedAt);
+                // Phase D — uuid. Always write (only changes after a
+                // sync response; no-op-on-disk handled inside NVS).
+                prefs.setCatUuid(i, roster.at(i).uuid);
             }
         }
         if (display.userRoster().consumeDirty()) {
@@ -848,6 +859,7 @@ void loop() {
                 prefs.setUserColor(i, users.at(i).avatarColor);
                 prefs.setUserCreatedAt(i, users.at(i).createdAt);
                 prefs.setUserUpdatedAt(i, users.at(i).updatedAt);
+                prefs.setUserUuid (i, users.at(i).uuid);
             }
         }
         if (display.userRoster().consumeLastFeederDirty()) {
