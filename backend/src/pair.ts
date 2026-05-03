@@ -53,7 +53,7 @@ const json = (data: unknown, init: ResponseInit = {}) =>
 // `feedme-` + lowercase hex. Allow 8..32 hex chars after the prefix
 // to cover the legacy 12-hex (MAC-derived), the new 16-hex (random),
 // and any reset-counter suffixes (e.g. `feedme-{hex}-1`).
-function validateDeviceId(raw: unknown): string | null {
+export function validateDeviceId(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const id = raw.trim();
   if (id.length < 1 || id.length > 64) return null;
@@ -185,7 +185,7 @@ export async function postPairConfirm(
     }
     // Re-issue token (let the user double-tap Confirm without losing
     // their session). Device will accept either one.
-    const token = await issueDeviceToken(deviceId, hid, secret);
+    const token = await issueDeviceToken(hid, deviceId, secret);
     await env.DB.prepare(
       "UPDATE pending_pairings SET device_token = ? WHERE device_id = ?",
     ).bind(token, deviceId).run();
@@ -196,7 +196,10 @@ export async function postPairConfirm(
   // update the legacy devices table (so /api/feed keeps translating),
   // and stash the token on the pending_pairings row for the device's
   // next /check.
-  const token = await issueDeviceToken(deviceId, hid, secret);
+  // issueDeviceToken signature: (hid, deviceId, secret) — careful
+  // not to swap; an earlier bug minted tokens with the two values
+  // crossed and every /api/sync call returned 401 "pairing revoked".
+  const token = await issueDeviceToken(hid, deviceId, secret);
 
   // Soft-restore the active pairings row if one was previously
   // tombstoned for this device (re-pair after unpair). Otherwise insert.
@@ -238,6 +241,28 @@ export async function postPairConfirm(
   return json({ ok: true, deviceId, hid });
 }
 
+// ── GET /api/pair/list (UserToken) ───────────────────────────────
+// Returns active pairings for the signed-in home — drives the
+// webapp's Settings → Devices card. Soft-deleted pairings are
+// excluded; if you want history, query sync_logs filtered by device.
+export async function getPairList(
+  env: Env, hid: string,
+): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT device_id, created_at, updated_at
+     FROM pairings
+     WHERE home_hid = ? AND is_deleted = 0
+     ORDER BY created_at DESC`,
+  ).bind(hid).all<{ device_id: string; created_at: number; updated_at: number }>();
+  return json({
+    devices: (results ?? []).map(r => ({
+      deviceId:  r.device_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+  });
+}
+
 // ── DELETE /api/pair/{deviceId} ──────────────────────────────────
 // Soft-deletes the pairings row for this device. Accepts either
 // auth type:
@@ -253,19 +278,35 @@ export async function deletePair(
   if (!id) return json({ error: "bad deviceId" }, { status: 400 });
 
   // Authorisation: a UserToken can only delete pairings in its own
-  // home; a DeviceToken can only delete its own deviceId. Otherwise
-  // a leaked token from one home could nuke another's pairings.
+  // home; a DeviceToken can only delete its own deviceId. We check
+  // against the *most recent* row for this device (active or
+  // tombstoned) so a leaked token can't nuke a pairing in a home
+  // it doesn't own — and a retry of an already-completed delete
+  // still proves caller is authorised before returning the
+  // idempotent OK.
   const row = await env.DB.prepare(
-    "SELECT home_hid FROM pairings WHERE device_id = ? AND is_deleted = 0",
-  ).bind(id).first<{ home_hid: string }>();
+    "SELECT home_hid, is_deleted FROM pairings WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+  ).bind(id).first<{ home_hid: string; is_deleted: number }>();
 
-  if (!row) return json({ error: "no active pairing" }, { status: 404 });
+  if (!row) {
+    // Genuinely never paired. Return 404 rather than masquerading as
+    // success — distinguishes "your delete worked" from "this device
+    // was never in our database at all" (which probably means a typo).
+    return json({ error: "no such device" }, { status: 404 });
+  }
 
   if (authed.type === "user" && row.home_hid !== authed.hid) {
     return json({ error: "forbidden" }, { status: 403 });
   }
   if (authed.type === "device" && (authed.deviceId !== id || row.home_hid !== authed.hid)) {
     return json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // Idempotent: if already soft-deleted, return success without
+  // re-tombstoning. Common path: webapp Forget button retried after
+  // a network timeout where the original DELETE actually succeeded.
+  if (row.is_deleted === 1) {
+    return json({ ok: true, deviceId: id, alreadyForgotten: true });
   }
 
   const now = Math.floor(Date.now() / 1000);

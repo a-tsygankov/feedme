@@ -143,6 +143,26 @@ export interface HistoryEvent {
   cat:   string;       // stringified slot_id; "primary" for legacy
 }
 
+// One row in /api/sync/log — drives the SyncLogPage.
+export interface SyncLogEntry {
+  id:             number;
+  device_id:      string;
+  ts:             number;
+  result:         "ok" | "error" | "cancelled" | string;
+  error_message:  string | null;
+  entities_in:    number;
+  entities_out:   number;
+  conflicts:      number;
+  duration_ms:    number;
+}
+
+// One row in /api/pair/list — drives Settings → Devices.
+export interface PairedDevice {
+  deviceId:  string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────
 export interface HomeInfo {
   hid: string;          // the home name — its unique identifier
@@ -196,6 +216,19 @@ export const api = {
     apiRaw<{ ok: true; deviceId: string }>(
       `/api/pair/${encodeURIComponent(deviceId)}`, { method: "DELETE" },
     ),
+  // Active pairings for the signed-in home. Used by Settings →
+  // Devices card to render one row per device with a Forget button.
+  pairList: () =>
+    apiRaw<{ devices: PairedDevice[] }>("/api/pair/list"),
+
+  // ── Sync log (Phase B, dev-24) ────────────────────────────────
+  // Read-only audit list capped at 100/home. Filter by device with
+  // ?device=<id> to narrow to a single unit's history.
+  syncLogList: (deviceId?: string, n = 50) => {
+    const params = new URLSearchParams({ n: String(n) });
+    if (deviceId) params.set("device", deviceId);
+    return apiRaw<{ entries: SyncLogEntry[] }>(`/api/sync/log?${params.toString()}`);
+  },
   // Wipes the home + all per-home records (cats, users) for the
   // currently authenticated session. The backend route + db column are
   // still spelled "household" — that's the on-the-wire identifier and
@@ -223,10 +256,19 @@ export const api = {
       `/api/dashboard/cats?tzOffset=${off}`,
     );
   },
-  dashboardFeed: (catSlotId: number, by: string, type: "feed" | "snooze" = "feed", note?: string) =>
-    apiRaw<{ ok: true; ts: number; type: string; by: string; catSlotId: number }>(
+  // eventId (UUID) makes the call idempotent — a network retry where
+  // the server actually processed the original is silently dropped
+  // by the UNIQUE INDEX on events.event_id. Generated client-side
+  // per click via crypto.randomUUID(); without it, every retry
+  // creates a duplicate feeding event.
+  dashboardFeed: (
+    catSlotId: number, by: string,
+    type: "feed" | "snooze" = "feed",
+    opts?: { note?: string; eventId?: string },
+  ) =>
+    apiRaw<{ ok: true; ts: number; type: string; by: string; catSlotId: number; eventId: string | null }>(
       "/api/dashboard/feed",
-      { method: "POST", body: { catSlotId, by, type, note } },
+      { method: "POST", body: { catSlotId, by, type, note: opts?.note, eventId: opts?.eventId } },
     ),
   dashboardHistory: (catSlotId?: number, n = 10) => {
     const params = new URLSearchParams();

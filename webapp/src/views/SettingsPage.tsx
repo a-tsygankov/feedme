@@ -1,25 +1,54 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { type HomeInfo, api, auth } from "../lib/api";
+import { ApiError, type HomeInfo, type PairedDevice, api, auth } from "../lib/api";
 
 // Settings. Holds the home name (= hid post-migration-0004), the
-// number of paired devices, sign-out, and the "forget home"
-// hard-reset. Coming-soon: rename home, change PIN, statistics
-// window preference, push-notification opt-in.
+// list of paired devices with per-row Forget, sign-out, and the
+// "forget home" hard-reset. Coming-soon: rename home, change PIN,
+// statistics window preference, push-notification opt-in.
 export default function SettingsPage() {
   const navigate = useNavigate();
   const hid = auth.hid();
   const [home, setHome] = useState<HomeInfo | null>(null);
+  const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgetting, setForgetting] = useState<string | null>(null);
 
-  // Pull /api/auth/me for the live device count + canonical hid.
+  // Pull /api/auth/me + /api/pair/list in parallel. Both are cheap
+  // and cover the whole "Home" + "Devices" cards in one round-trip.
   useEffect(() => {
     let cancelled = false;
-    api.me()
-      .then((info) => { if (!cancelled) setHome(info); })
-      .catch(() => { /* leave home=null; UI falls back to cached hid */ });
+    Promise.all([
+      api.me().catch(() => null),
+      api.pairList().catch(() => ({ devices: [] as PairedDevice[] })),
+    ]).then(([info, devs]) => {
+      if (cancelled) return;
+      if (info) setHome(info);
+      setDevices(devs.devices);
+    });
     return () => { cancelled = true; };
   }, []);
+
+  async function forgetDevice(deviceId: string) {
+    if (!confirm(
+      `Forget device ${deviceId}?\n\n` +
+      `It will stop syncing into this home immediately. To pair the ` +
+      `same physical unit again, the user must tap Reset on the device, ` +
+      `then re-scan its QR.`,
+    )) return;
+    setForgetting(deviceId);
+    try {
+      await api.pairForget(deviceId);
+      setDevices((cur) => cur?.filter((d) => d.deviceId !== deviceId) ?? null);
+      // Refresh /me so the device count in the Home card is accurate.
+      api.me().then(setHome).catch(() => { /* keep stale */ });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : (e as Error).message;
+      alert(`Forget failed: ${msg}`);
+    } finally {
+      setForgetting(null);
+    }
+  }
 
   function signOut() {
     if (!confirm("Sign out of FeedMe on this device?")) return;
@@ -73,6 +102,37 @@ export default function SettingsPage() {
       </div>
 
       <div className="card">
+        <h2>Devices</h2>
+        {devices === null && <p className="muted">Loading…</p>}
+        {devices !== null && devices.length === 0 && (
+          <p className="muted">
+            No devices paired yet. Scan a device's QR to pair one.
+          </p>
+        )}
+        {devices?.map((d) => (
+          <div key={d.deviceId} className="device-row">
+            <span className="device-id" title={d.deviceId}>{d.deviceId}</span>
+            <span className="device-meta">{relativeTime(d.createdAt)}</span>
+            <button
+              className="forget-btn"
+              disabled={forgetting === d.deviceId}
+              onClick={() => forgetDevice(d.deviceId)}
+            >
+              {forgetting === d.deviceId ? "…" : "Forget"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        className="secondary"
+        onClick={() => navigate("/sync-log")}
+        style={{ width: "100%", marginBottom: 12 }}
+      >
+        View sync log
+      </button>
+
+      <div className="card">
         <h2>Coming soon</h2>
         <p className="muted">
           Statistics dashboard, change PIN, push notifications.
@@ -93,4 +153,18 @@ export default function SettingsPage() {
       </button>
     </>
   );
+}
+
+// "paired 3 days ago" style for the Devices card. Falls back to
+// the absolute date past 30 days so the row stays compact and
+// human-friendly even for long-tenured devices.
+function relativeTime(unixSec: number): string {
+  const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - unixSec);
+  if (ageSec < 60)        return "just now";
+  if (ageSec < 3600)      return `${Math.floor(ageSec / 60)}m ago`;
+  if (ageSec < 86400)     return `${Math.floor(ageSec / 3600)}h ago`;
+  if (ageSec < 30 * 86400) return `${Math.floor(ageSec / 86400)}d ago`;
+  return new Date(unixSec * 1000).toLocaleDateString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+  });
 }

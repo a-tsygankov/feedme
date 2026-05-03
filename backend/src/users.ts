@@ -90,6 +90,17 @@ export async function updateUser(env: Env, hid: string, slotId: number, body: un
 }
 
 export async function deleteUser(env: Env, hid: string, slotId: number): Promise<Response> {
+  // Idempotent retry path: if the row is already soft-deleted, return
+  // 200 instead of 404 so a network-retried DELETE doesn't confuse
+  // the client. Mirrors deleteCat's pattern.
+  const existing = await env.DB.prepare(
+    "SELECT deleted_at FROM users WHERE hid = ? AND slot_id = ?",
+  ).bind(hid, slotId).first<{ deleted_at: number | null }>();
+  if (!existing) return jsonErr(404, "user not found");
+  if (existing.deleted_at !== null) {
+    return jsonOk({ ok: true, alreadyDeleted: true });
+  }
+
   // Same N>=1 invariant as cats — feeds always need a `by`.
   const liveCount = await env.DB.prepare(
     "SELECT COUNT(*) AS c FROM users WHERE hid = ? AND deleted_at IS NULL",
@@ -97,10 +108,9 @@ export async function deleteUser(env: Env, hid: string, slotId: number): Promise
   if ((liveCount?.c ?? 0) <= 1) return jsonErr(409, "can't remove last user");
 
   const ts = Math.floor(Date.now() / 1000);
-  const res = await env.DB.prepare(
-    "UPDATE users SET deleted_at = ? WHERE hid = ? AND slot_id = ? AND deleted_at IS NULL",
-  ).bind(ts, hid, slotId).run();
-  if (res.meta.changes === 0) return jsonErr(404, "user not found");
+  await env.DB.prepare(
+    "UPDATE users SET deleted_at = ?, is_deleted = 1, updated_at = ? WHERE hid = ? AND slot_id = ?",
+  ).bind(ts, ts, hid, slotId).run();
   return jsonOk({ ok: true });
 }
 

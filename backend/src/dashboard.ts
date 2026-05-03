@@ -122,7 +122,7 @@ export async function getDashboardCats(
   return json({ now, tzOffsetMin, cats: enriched });
 }
 
-// POST /api/dashboard/feed { catSlotId, by, type?, note? }
+// POST /api/dashboard/feed { catSlotId, by, type?, note?, eventId? }
 //
 // Logs a feed (or snooze) event for the signed-in home. `catSlotId`
 // is the integer slot_id; we store it stringified in events.cat to
@@ -130,6 +130,13 @@ export async function getDashboardCats(
 // `type` defaults to "feed" — pass "snooze" for the "just begging"
 // path that doesn't reset the hungry timer's mood semantics on the
 // client side.
+//
+// `eventId` (optional but recommended) is a client-generated UUID
+// that makes the call idempotent: the same id replayed (e.g. a
+// network retry where the server actually processed the original)
+// is silently dropped via the UNIQUE INDEX on `events.event_id`.
+// Mirrors the firmware-facing `/api/feed` pattern. Without it,
+// every retry creates a duplicate event row.
 export async function postDashboardFeed(
   env: Env,
   hid: string,
@@ -140,6 +147,7 @@ export async function postDashboardFeed(
     by?: string;
     type?: "feed" | "snooze";
     note?: string;
+    eventId?: string;
   };
   if (typeof b.catSlotId !== "number" || !b.by) {
     return json({ error: "catSlotId and by required" }, { status: 400 });
@@ -147,12 +155,18 @@ export async function postDashboardFeed(
   const type = b.type === "snooze" ? "snooze" : "feed";
   const catId = String(b.catSlotId);
   const ts = Math.floor(Date.now() / 1000);
+  // Cap eventId length defensively; UUIDs are 36 chars.
+  const eventId = (typeof b.eventId === "string" && b.eventId.length <= 64)
+    ? b.eventId : null;
 
+  // INSERT OR IGNORE: the UNIQUE INDEX on events.event_id makes a
+  // retry with the same eventId a no-op. Without an eventId we fall
+  // back to plain INSERT (legacy behaviour — every call inserts).
   await env.DB.prepare(
-    "INSERT INTO events (hid, ts, type, by, note, cat, event_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).bind(hid, ts, type, b.by, b.note ?? null, catId, null).run();
+    "INSERT OR IGNORE INTO events (hid, ts, type, by, note, cat, event_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).bind(hid, ts, type, b.by, b.note ?? null, catId, eventId).run();
 
-  return json({ ok: true, ts, type, by: b.by, catSlotId: b.catSlotId });
+  return json({ ok: true, ts, type, by: b.by, catSlotId: b.catSlotId, eventId });
 }
 
 // GET /api/dashboard/history?cat=<slotId>&n=<limit>
