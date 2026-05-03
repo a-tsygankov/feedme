@@ -256,10 +256,19 @@ export const api = {
       `/api/dashboard/cats?tzOffset=${off}`,
     );
   },
-  dashboardFeed: (catSlotId: number, by: string, type: "feed" | "snooze" = "feed", note?: string) =>
-    apiRaw<{ ok: true; ts: number; type: string; by: string; catSlotId: number }>(
+  // eventId (UUID) makes the call idempotent — a network retry where
+  // the server actually processed the original is silently dropped
+  // by the UNIQUE INDEX on events.event_id. Generated client-side
+  // per click via crypto.randomUUID(); without it, every retry
+  // creates a duplicate feeding event.
+  dashboardFeed: (
+    catSlotId: number, by: string,
+    type: "feed" | "snooze" = "feed",
+    opts?: { note?: string; eventId?: string },
+  ) =>
+    apiRaw<{ ok: true; ts: number; type: string; by: string; catSlotId: number; eventId: string | null }>(
       "/api/dashboard/feed",
-      { method: "POST", body: { catSlotId, by, type, note } },
+      { method: "POST", body: { catSlotId, by, type, note: opts?.note, eventId: opts?.eventId } },
     ),
   dashboardHistory: (catSlotId?: number, n = 10) => {
     const params = new URLSearchParams();

@@ -82,10 +82,10 @@ interface SyncRequest {
 
 // ── type guards (defensive parsing of JSON bodies from a device
 //    that might be running mismatched firmware) ────────────────────
-function isInt(n: unknown): n is number {
+export function isInt(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && Number.isInteger(n);
 }
-function isSyncCat(c: unknown): c is SyncCat {
+export function isSyncCat(c: unknown): c is SyncCat {
   if (typeof c !== "object" || c === null) return false;
   const o = c as Record<string, unknown>;
   if (!isInt(o.slotId) || o.slotId < 0 || o.slotId > 255)              return false;
@@ -100,7 +100,7 @@ function isSyncCat(c: unknown): c is SyncCat {
   if (typeof o.isDeleted !== "boolean")                                 return false;
   return true;
 }
-function isSyncUser(u: unknown): u is SyncUser {
+export function isSyncUser(u: unknown): u is SyncUser {
   if (typeof u !== "object" || u === null) return false;
   const o = u as Record<string, unknown>;
   if (!isInt(o.slotId) || o.slotId < 0 || o.slotId > 255) return false;
@@ -273,7 +273,7 @@ async function readHomeState(env: Env, hid: string): Promise<{
   };
 }
 
-function parseSchedule(json: string): number[] {
+export function parseSchedule(json: string): number[] {
   try {
     const arr = JSON.parse(json);
     if (Array.isArray(arr) && arr.length === 4 && arr.every(n => isInt(n))) return arr;

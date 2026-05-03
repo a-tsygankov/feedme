@@ -124,6 +124,21 @@ export async function updateCat(env: Env, hid: string, slotId: number, body: unk
 }
 
 export async function deleteCat(env: Env, hid: string, slotId: number): Promise<Response> {
+  // Look up the cat in any state first. Distinguishes:
+  //   - never existed         → 404
+  //   - already soft-deleted  → 200 idempotent (network-retry path)
+  //   - active                → soft-delete + 200
+  // Without this distinction a network-retried DELETE that originally
+  // succeeded would 404, confusing the client into thinking the
+  // delete failed.
+  const existing = await env.DB.prepare(
+    "SELECT deleted_at FROM cats WHERE hid = ? AND slot_id = ?",
+  ).bind(hid, slotId).first<{ deleted_at: number | null }>();
+  if (!existing) return jsonErr(404, "cat not found");
+  if (existing.deleted_at !== null) {
+    return jsonOk({ ok: true, alreadyDeleted: true });
+  }
+
   // Refuse to delete the last cat — preserves the firmware's N>=1
   // invariant. The web app should disable the delete button at that
   // boundary, but we enforce here too.
@@ -135,10 +150,9 @@ export async function deleteCat(env: Env, hid: string, slotId: number): Promise<
   // Soft delete: stamp deleted_at. Keeps event-by-cat lookups stable
   // for orphan history rendering ("fed by Mochi (removed)").
   const ts = Math.floor(Date.now() / 1000);
-  const res = await env.DB.prepare(
-    "UPDATE cats SET deleted_at = ? WHERE hid = ? AND slot_id = ? AND deleted_at IS NULL",
-  ).bind(ts, hid, slotId).run();
-  if (res.meta.changes === 0) return jsonErr(404, "cat not found");
+  await env.DB.prepare(
+    "UPDATE cats SET deleted_at = ?, is_deleted = 1, updated_at = ? WHERE hid = ? AND slot_id = ?",
+  ).bind(ts, ts, hid, slotId).run();
   return jsonOk({ ok: true });
 }
 

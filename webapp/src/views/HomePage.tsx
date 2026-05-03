@@ -164,8 +164,13 @@ export default function HomePage() {
                   secondsSince: 0, todayCount: c.todayCount + 1 }
         : c));
     }
+    // Generate a per-click idempotency key. If fetch retries (e.g.
+    // the user double-tapped or the network blip the SW retried),
+    // the server's UNIQUE INDEX on events.event_id silently dedups.
+    // Without this, every retry would create a duplicate feeding.
+    const eventId = crypto.randomUUID();
     try {
-      await api.dashboardFeed(cat.slotId, by, type);
+      await api.dashboardFeed(cat.slotId, by, type, { eventId });
       flashToast(type === "feed" ? `Fed ${cat.name} ✓` : `Snoozed ${cat.name}`);
       // Refetch so we converge on server truth (and pick up any other
       // device's events that landed between optimistic + now).
