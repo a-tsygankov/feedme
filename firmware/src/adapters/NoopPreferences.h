@@ -246,6 +246,8 @@ public:
     void setHomeName(const char*) override    {}
     int64_t getLastSyncAt(int64_t d) override { return lastSyncSet_ ? lastSync_ : d; }
     void setLastSyncAt(int64_t v) override    { lastSync_ = v; lastSyncSet_ = true; }
+    int  getSyncIntervalSec(int d) override   { return syncIntSet_ ? syncIntSec_ : d; }
+    void setSyncIntervalSec(int v) override   { syncIntSec_ = v; syncIntSet_ = true; }
 
 private:
     int64_t threshold_     = 0;
@@ -306,6 +308,8 @@ private:
     bool     userUpdatedAtSet_[4]= {false};
     int64_t  lastSync_         = 0;
     bool     lastSyncSet_      = false;
+    int      syncIntSec_       = 0;
+    bool     syncIntSet_       = false;
     char     catUuid_   [4][33] = {{0}};
     bool     catUuidSet_[4]     = {false};
     char     userUuid_  [4][33] = {{0}};

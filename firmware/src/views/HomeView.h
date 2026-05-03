@@ -9,20 +9,23 @@ namespace feedme::views {
 // Home — navigation hub for everything tied to a household identity.
 // Reached from the main menu's "H" glyph (replaces the old Quiet entry).
 //
-// Five items, vertically stacked, rotate-to-select + tap-to-open:
-//   Cats   → catsList         (count shown on the right)
-//   Users  → usersList        (count shown on the right)
-//   Sync   → syncing          (manual sync; paired devices only,
-//                              greyed when unpaired)
-//   Pair   → pairing          (re-show QR; long-press there resets)
-//   Reset  → resetPairConfirm (DELETE /api/pair + wipe NVS + reboot)
+// Six items, vertically stacked, rotate-to-select + tap-to-open:
+//   Cats     → catsList         (count shown on the right)
+//   Users    → usersList        (count shown on the right)
+//   Sync     → syncing          (manual sync; paired devices only,
+//                                greyed when unpaired)
+//   Login QR → loginQr          (Phase F: one-shot QR a phone scans
+//                                to log in without typing PIN; paired
+//                                devices only, greyed when unpaired)
+//   Pair     → pairing          (re-show QR; long-press there resets)
+//   Reset    → resetPairConfirm (DELETE /api/pair + wipe NVS + reboot)
 //
 // Cats/Users were previously under Settings; moved here so Settings can
 // stay focused on per-device tunables (Wi-Fi, Wake, Threshold, …) and
 // Home owns the household-scoped surface area.
 class HomeView : public IView {
 public:
-    static constexpr int ITEM_COUNT = 5;
+    static constexpr int ITEM_COUNT = 6;
 
     void setRoster    (const feedme::domain::CatRoster*  r) { roster_     = r; }
     void setUserRoster(const feedme::domain::UserRoster* r) { userRoster_ = r; }

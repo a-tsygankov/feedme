@@ -14,6 +14,7 @@ constexpr char API_PAIR_START[]    = "/api/pair/start";
 constexpr char API_PAIR_CHECK[]    = "/api/pair/check?deviceId=";
 constexpr char API_PAIR_CANCEL[]   = "/api/pair/cancel";
 constexpr char API_SYNC[]          = "/api/sync";
+constexpr char API_LOGIN_TOKEN[]   = "/api/auth/login-token-create";
 
 }  // namespace
 
@@ -194,15 +195,25 @@ bool SyncService::applySyncResponse(const std::string& body) {
     }
 
     lastSyncAt_ = doc["now"] | 0;
+    // Phase E — server returns the home's per-home sync interval on
+    // every /api/sync. We cache it for the next sleep-entry gate; the
+    // main.cpp loop is responsible for persisting it to NVS so a
+    // reboot doesn't drop us back to the 4-h default. Range-clamped
+    // server-side (3600..86400); we still defend with > 0 so a buggy
+    // backend can't drive the gate to 0 (= sync on every sleep).
+    if ((doc["syncIntervalSec"] | 0) > 0) {
+        syncIntervalSec_ = doc["syncIntervalSec"] | syncIntervalSec_;
+    }
     // Force-dirty so main.cpp's tick-loop persists the freshly-arrived
     // server state (especially the uuids) to NVS. Without this, the
     // appendLoaded path leaves the rosters "clean" and a reboot would
     // lose the uuids the server just taught us.
     cats_.markDirty();
     users_.markDirty();
-    Serial.printf("[sync] applied: %d cats, %d users, lastSyncAt=%lld, conflicts=%d\n",
+    Serial.printf("[sync] applied: %d cats, %d users, lastSyncAt=%lld, syncIntervalSec=%d, conflicts=%d\n",
                   cats_.count(), users_.count(),
                   static_cast<long long>(lastSyncAt_),
+                  syncIntervalSec_,
                   static_cast<int>(doc["conflicts"] | 0));
     return true;
 }
@@ -239,6 +250,69 @@ bool SyncService::syncFull() {
         return false;
     }
     return applySyncResponse(res.body);
+}
+
+bool SyncService::maybeSync(int64_t nowSec, bool* gateTriggered) {
+    if (gateTriggered) *gateTriggered = false;
+    if (deviceToken_.empty()) {
+        // Unpaired devices have nothing to sync; not an error.
+        return false;
+    }
+    if (syncIntervalSec_ <= 0) {
+        // Defensive — should never happen given setSyncIntervalSec
+        // clamps. Skip rather than divide-by-zero or sync every loop.
+        return false;
+    }
+    // Gate: sync only if the elapsed window has been crossed. Note we
+    // compare against absolute unix sec from IClock, NOT millis() —
+    // millis() rolls over every ~49 days and would mis-fire here.
+    const int64_t elapsed = nowSec - lastSyncAt_;
+    if (lastSyncAt_ > 0 && elapsed < syncIntervalSec_) {
+        return false;
+    }
+    if (gateTriggered) *gateTriggered = true;
+    Serial.printf("[sync] gate triggered: elapsed=%lld interval=%d\n",
+                  static_cast<long long>(elapsed), syncIntervalSec_);
+    return syncFull();
+}
+
+bool SyncService::loginTokenCreate() {
+    loginToken_.clear();
+    loginTokenExpiresAt_ = 0;
+    if (deviceToken_.empty()) {
+        lastError_ = "not paired (no device token)";
+        return false;
+    }
+    // Empty body — endpoint takes only the DeviceToken in the auth header.
+    auto res = net_.httpPostJson(API_LOGIN_TOKEN, "{}", deviceToken_);
+    if (res.status == 401) {
+        lastError_ = "unauthorized — pairing revoked, re-pair from H menu";
+        Serial.println("[sync] login-token-create 401 — clearing pairing state");
+        deviceToken_.clear();
+        homeName_.clear();
+        return false;
+    }
+    if (res.status != 200) {
+        lastError_ = "login-token-create status=" + std::to_string(res.status);
+        Serial.printf("[sync] loginTokenCreate failed: %d\n", res.status);
+        return false;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, res.body) != DeserializationError::Ok) {
+        lastError_ = "login-token response not JSON";
+        return false;
+    }
+    const char* tok = doc["token"] | "";
+    const int64_t exp = doc["expiresAt"] | 0;
+    if (!tok || tok[0] == '\0' || exp <= 0) {
+        lastError_ = "login-token response missing token/expiresAt";
+        return false;
+    }
+    loginToken_          = tok;
+    loginTokenExpiresAt_ = exp;
+    Serial.printf("[sync] login-token minted (expires at %lld)\n",
+                  static_cast<long long>(exp));
+    return true;
 }
 
 bool SyncService::unpair() {

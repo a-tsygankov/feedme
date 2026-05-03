@@ -30,17 +30,21 @@ struct ItemSpec {
 };
 
 const ItemSpec kItems[HomeView::ITEM_COUNT] = {
-    { "Cats",  "*",                "catsList"          },
-    { "Users", "U",                "usersList"         },
-    { "Sync",  LV_SYMBOL_REFRESH,  "syncing"           },
-    { "Pair",  "Q",                "pairing"           },
-    { "Reset", LV_SYMBOL_WARNING,  "resetPairConfirm"  },
+    { "Cats",     "*",                "catsList"          },
+    { "Users",    "U",                "usersList"         },
+    { "Sync",     LV_SYMBOL_REFRESH,  "syncing"           },
+    // Phase F — Login QR: an already-paired device shows a one-shot
+    // QR with a 60-s token; phone scans → /qr-login → exchange → in.
+    { "Login QR", "L",                "loginQr"           },
+    { "Pair",     "Q",                "pairing"           },
+    { "Reset",    LV_SYMBOL_WARNING,  "resetPairConfirm"  },
 };
 
 // Indices into kItems[] for the rows that need extra rendering /
 // gating logic. Centralised so a future re-order doesn't require
 // hunting through the file.
-constexpr int kSyncIdx = 2;
+constexpr int kSyncIdx    = 2;
+constexpr int kLoginQrIdx = 3;
 
 }  // namespace
 
@@ -163,10 +167,13 @@ void HomeView::redraw() {
                 }
                 break;
             }
-            case kSyncIdx: {
-                // Greyed-out treatment when no DeviceToken has been
-                // minted yet — the row stays visible (so users learn
-                // the affordance exists) but communicates "not yet".
+            case kSyncIdx:
+            case kLoginQrIdx: {
+                // Both Sync and Login QR are paired-only: they hit
+                // DeviceToken-gated endpoints and would just 401
+                // before pairing completes. Same greying treatment so
+                // the user learns the affordance exists but knows it's
+                // unavailable until pairing.
                 const bool paired = isPaired_ && *isPaired_;
                 lv_label_set_text(rowValues_[i], paired ? "" : "pair first");
                 if (!paired) {
@@ -212,12 +219,15 @@ const char* HomeView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press: {
-            // Sync row is gated by the "is paired?" pointer. Tapping
-            // it before pairing would just fail with 401 "device
-            // token required" — refuse the transition and give the
-            // user a hint via the greyed "pair first" value text.
-            if (selectedIdx_ == kSyncIdx && (!isPaired_ || !*isPaired_)) {
-                Serial.println("[home] tap on Sync ignored (not paired)");
+            // Sync + Login-QR rows are gated by the "is paired?"
+            // pointer. Tapping either before pairing would just fail
+            // with 401 "device token required" — refuse the transition
+            // and give the user a hint via the greyed "pair first"
+            // value text.
+            if ((selectedIdx_ == kSyncIdx || selectedIdx_ == kLoginQrIdx)
+                && (!isPaired_ || !*isPaired_)) {
+                Serial.printf("[home] tap on %s ignored (not paired)\n",
+                              kItems[selectedIdx_].label);
                 return nullptr;
             }
             // Loud serial logging because previous "Pair didn't react"

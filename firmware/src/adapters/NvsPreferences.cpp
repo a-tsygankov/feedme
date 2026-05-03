@@ -357,6 +357,19 @@ void NvsPreferences::setLastSyncAt(int64_t value) {
     prefs_.putLong64(KEY_LAST_SYNC_AT, value);
 }
 
+// Phase E — per-home sync interval (seconds). Cached so the boot-
+// path's first sleep-entry gate has a sensible value before the first
+// post-boot /api/sync round-trip overwrites it. Server-side range is
+// 3600..86400 but we don't re-clamp here — the server is canonical.
+int NvsPreferences::getSyncIntervalSec(int defaultValue) {
+    if (!ready_) return defaultValue;
+    return prefs_.getInt(KEY_SYNC_INTERVAL, defaultValue);
+}
+void NvsPreferences::setSyncIntervalSec(int value) {
+    if (!ready_) return;
+    prefs_.putInt(KEY_SYNC_INTERVAL, value);
+}
+
 // ── Phase D: per-entity UUIDs ───────────────────────────────────
 //
 // Key prefixes "cUu{slot}" / "uUu{slot}" — 5 chars max, well under

@@ -199,6 +199,14 @@ public:
     // updates on every 200 response.
     virtual int64_t getLastSyncAt(int64_t defaultValue) = 0;
     virtual void    setLastSyncAt(int64_t value) = 0;
+
+    // Phase E — per-home sync interval (seconds). Server-canonical,
+    // edited from the webapp's Settings → Sync card; the device just
+    // round-trips whatever value /api/sync most recently returned.
+    // Cached here so a reboot doesn't drop us back to the 4-h default
+    // before the first post-boot sync overwrites it.
+    virtual int  getSyncIntervalSec(int defaultValue) = 0;
+    virtual void setSyncIntervalSec(int value) = 0;
 };
 
 }  // namespace feedme::ports
