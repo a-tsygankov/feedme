@@ -27,7 +27,7 @@ import type { AuthInfo } from "./auth";
 import type { Env } from "./env";
 
 const SCHEMA_VERSION = 1;
-const DEFAULT_SYNC_INTERVAL_SEC = 4 * 60 * 60;     // 4h, configurable in Phase E
+const DEFAULT_SYNC_INTERVAL_SEC = 4 * 60 * 60;     // 4h fallback if migration 0009 not yet applied
 const SYNC_LOG_RETENTION = 100;                     // ring-buffer cap per home
 const CONFLICT_WINDOW_SEC = 5;                      // |Δupdated_at|<5s = "racey"
 const DEFAULT_SCHEDULE_JSON = "[7,12,18,21]";       // firmware MealSchedule defaults
@@ -374,6 +374,20 @@ export async function postSync(
   const entitiesOut = out.cats.length + out.users.length + 1;
   const now = Math.floor(Date.now() / 1000);
 
+  // Phase E — read the per-home sync interval (migration 0009).
+  // Falls back to the 4 h hardcoded default if the column doesn't
+  // exist yet (e.g. the migration hasn't run on this DB) or the
+  // home row was somehow nuked between pairing and sync.
+  let syncIntervalSec = DEFAULT_SYNC_INTERVAL_SEC;
+  try {
+    const settingsRow = await env.DB.prepare(
+      "SELECT sync_interval_sec FROM households WHERE hid = ?",
+    ).bind(hid).first<{ sync_interval_sec: number }>();
+    if (settingsRow?.sync_interval_sec) syncIntervalSec = settingsRow.sync_interval_sec;
+  } catch {
+    /* migration 0009 not applied yet — keep the default */
+  }
+
   const response: SyncResponse = {
     schemaVersion: SCHEMA_VERSION,
     now,
@@ -381,7 +395,7 @@ export async function postSync(
     cats: out.cats,
     users: out.users,
     conflicts,
-    syncIntervalSec: DEFAULT_SYNC_INTERVAL_SEC,
+    syncIntervalSec,
   };
 
   await recordSyncLog(env, hid, deviceId, "ok",
