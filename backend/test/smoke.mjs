@@ -110,6 +110,28 @@ async function main() {
   assertEqual("sync retry — cat updatedAt unchanged",
     sync2.body?.cats?.[0]?.updatedAt, sync1.body?.cats?.[0]?.updatedAt);
 
+  // ── Phase D: server must mint + return a uuid for the cat we
+  //    INSERTed without one, and the SAME uuid must come back on
+  //    every subsequent response (proving identity is stable, not
+  //    re-rolled on each sync).
+  const uuid1 = sync1.body?.cats?.[0]?.uuid;
+  const uuid2 = sync2.body?.cats?.[0]?.uuid;
+  if (typeof uuid1 === "string" && /^[0-9a-f]{32}$/.test(uuid1)) {
+    log("sync response includes 32-hex uuid", "ok", uuid1.slice(0, 8) + "…");
+  } else {
+    log("sync response includes 32-hex uuid", "fail", `got ${JSON.stringify(uuid1)}`);
+  }
+  assertEqual("uuid stable across syncs", uuid2, uuid1);
+
+  // ── Phase D: send the cat back WITH the uuid. Server should match
+  //    on uuid (not slot_id) and return the same row. Sanity check
+  //    that the uuid round-trip closes the loop.
+  const sync3 = await call("POST", "/api/sync", {
+    ...syncBody,
+    cats: [{ ...syncBody.cats[0], uuid: uuid1 }],
+  }, deviceToken);
+  assertEqual("sync with uuid returns same uuid", sync3.body?.cats?.[0]?.uuid, uuid1);
+
   // ── /api/dashboard/feed: same eventId twice → only one row
   const feed1 = await call("POST", "/api/dashboard/feed",
     { catSlotId: 0, by: "Andrey", eventId: TEST_EVENT_ID }, userToken);
