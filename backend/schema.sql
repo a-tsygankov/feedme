@@ -169,6 +169,22 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_logs_home_ts ON sync_logs(home_hid, ts DESC);
 
+-- ── Login QR tokens (migration 0010, Phase F) ────────────────────
+-- One-shot, 60-s tokens minted by an already-paired device on POST
+-- /api/auth/login-token-create and consumed by a phone scanning the
+-- resulting QR via POST /api/auth/login-qr. Single-use: consumed_at
+-- is stamped on exchange and a replay returns 410.
+CREATE TABLE IF NOT EXISTS login_qr_tokens (
+  token       TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,
+  home_hid    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_login_qr_device  ON login_qr_tokens(device_id);
+CREATE INDEX IF NOT EXISTS idx_login_qr_expires ON login_qr_tokens(expires_at);
+
 -- ── Migrations ────────────────────────────────────────────────────
 -- This file is the CANONICAL FULL SCHEMA — what a brand-new database
 -- should look like. For existing databases that need to catch up to

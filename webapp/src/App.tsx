@@ -3,6 +3,7 @@ import { auth } from "./lib/api";
 import CatsPage from "./views/CatsPage";
 import HomePage from "./views/HomePage";
 import LoginPage from "./views/LoginPage";
+import QrLoginPage from "./views/QrLoginPage";
 import SettingsPage from "./views/SettingsPage";
 import SetupPage from "./views/SetupPage";
 import SyncLogPage from "./views/SyncLogPage";
@@ -22,6 +23,9 @@ export default function App() {
             for first-time pairing. Falls through to PIN setup or to a
             "this hid is already paired" prompt. */}
         <Route path="/setup" element={<SetupPage />} />
+        {/* /qr-login is the Phase F device-side Login QR landing — no
+            auth required, the token in the URL IS the credential. */}
+        <Route path="/qr-login" element={<QrLoginPage />} />
         <Route path="/"           element={isAuthed ? <HomePage />    : <Navigate to="/login" replace />} />
         <Route path="/cats"       element={isAuthed ? <CatsPage />    : <Navigate to="/login" replace />} />
         <Route path="/users"      element={isAuthed ? <UsersPage />   : <Navigate to="/login" replace />} />

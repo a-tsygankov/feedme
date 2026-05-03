@@ -64,6 +64,28 @@ export default function SetupPage() {
     setPhase("form");
   }, [deviceId, navigate]);
 
+  // Phase F — "Quick start" path. Skips name + PIN entirely; the
+  // backend mints an opaque "home-{16hex}" hid and returns a session
+  // token + cookie in one round-trip. The user can promote to a
+  // PIN-protected home later via Settings → Set a PIN.
+  async function submitQuickStart() {
+    setErr(null);
+    if (!deviceId) { setErr("Missing device id — re-scan the QR"); return; }
+    setBusy(true);
+    try {
+      const { token, hid } = await api.quickSetup(deviceId);
+      auth.set(token, hid);
+      // Same /?pair=… handoff as the PIN flow — the device is still
+      // polling /api/pair/check and needs the dashboard's confirm-
+      // pairing banner to fire POST /api/pair/confirm.
+      navigate(`/?pair=${encodeURIComponent(deviceId)}`, { replace: true });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "quick start failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitCreate() {
     setErr(null);
     if (name.trim().length < 1) { setErr("Pick a home name"); return; }
@@ -146,10 +168,27 @@ export default function SetupPage() {
           <>
             <h2>Create a new home</h2>
             <p className="muted">
-              Pairing device <code>{deviceId}</code>. Pick a unique
-              name for your home — that name IS your home's ID and
-              you'll type it (along with your PIN) to sign in later.
+              Pairing device <code>{deviceId}</code>. The fastest path
+              is "Quick start" — we'll generate a private home ID for
+              you and the device starts working immediately. You can
+              add a PIN later from Settings if you want extra
+              protection. Or, pick your own home name + PIN below.
             </p>
+            <button
+              disabled={busy}
+              onClick={submitQuickStart}
+              style={{ width: "100%", marginBottom: 12 }}
+            >
+              {busy ? "..." : "Quick start (no PIN)"}
+            </button>
+            <div style={{
+              margin: "12px 0", paddingTop: 12,
+              borderTop: "1px solid var(--theme-line, #2e2440)",
+            }}>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+                Or create a PIN-protected home with a name you choose:
+              </p>
+            </div>
             <label>Home name</label>
             <input
               autoFocus

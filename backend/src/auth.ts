@@ -208,14 +208,56 @@ function isTokenPayload(x: unknown): x is TokenPayload {
   return false;
 }
 
-// Convenience: pull Authorization: Bearer <token>, verify, return the
-// AuthInfo (type + hid [+ deviceId]). Null if missing / invalid / expired.
+// Phase F — read the session cookie set on auth responses. Cookies
+// are sent automatically by the browser with every same-origin
+// request (the Pages Function proxies /api/* to the Worker, so
+// "same origin" includes our Worker). Falls back to nothing when
+// the cookie isn't present; the Authorization header path still
+// works for non-browser clients (firmware, curl).
+const SESSION_COOKIE_NAME = "feedme.session";
+function readSessionCookie(req: Request): string | null {
+  const header = req.headers.get("cookie") ?? "";
+  // Tiny parser — RFC 6265 grammar is more permissive than this
+  // covers but we only ever set our own one cookie, so a single-name
+  // lookup is enough. Bail on the first match.
+  for (const pair of header.split(";")) {
+    const eq = pair.indexOf("=");
+    if (eq < 0) continue;
+    const name = pair.slice(0, eq).trim();
+    if (name !== SESSION_COOKIE_NAME) continue;
+    return pair.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+// Build the Set-Cookie header value for a freshly-issued UserToken.
+// HttpOnly so XSS can't read it; Secure so it's only sent over HTTPS;
+// SameSite=Lax so cross-site GETs (e.g. user clicking a link) carry
+// it but cross-site POSTs don't (CSRF defence). Max-Age = 30 days
+// matches the UserToken TTL.
+export function buildSessionCookie(token: string): string {
+  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`;
+}
+export function buildClearSessionCookie(): string {
+  return `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+// Convenience: pull Authorization: Bearer <token>, OR the session
+// cookie, verify, return the AuthInfo (type + hid [+ deviceId]).
+// Null if missing / invalid / expired.
 export async function authFromRequest(
   req: Request, secret: string,
 ): Promise<AuthInfo | null> {
   const header = req.headers.get("authorization") ?? "";
-  if (!header.startsWith("Bearer ")) return null;
-  const token = header.slice("Bearer ".length).trim();
+  let token = "";
+  if (header.startsWith("Bearer ")) {
+    token = header.slice("Bearer ".length).trim();
+  } else {
+    // Fall back to the session cookie — set by every auth endpoint
+    // since Phase F. Browsers send it automatically; the Authorization
+    // header path stays the canonical one for the firmware + curl.
+    token = readSessionCookie(req) ?? "";
+  }
   if (!token) return null;
   const payload = await verifyToken(token, secret);
   if (!payload) return null;
