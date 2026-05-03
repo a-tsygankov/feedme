@@ -154,6 +154,43 @@ public:
     // whenever NVS hid is empty (first boot / after reset).
     virtual int  getHidResetCount(int defaultValue) = 0;
     virtual void setHidResetCount(int value) = 0;
+
+    // ── Phase C sync state ────────────────────────────────────────
+    //
+    // Per-cat / per-user createdAt + updatedAt drive Last-Write-Wins
+    // on the server side. Both unix seconds. Default value 0 is the
+    // sentinel for "loaded from a pre-Phase-C snapshot" — the first
+    // sync's server response will always overwrite the local value
+    // (any real server timestamp > 0 wins LWW).
+    virtual int64_t getCatCreatedAt(int slot, int64_t defaultValue) = 0;
+    virtual void    setCatCreatedAt(int slot, int64_t value) = 0;
+    virtual int64_t getCatUpdatedAt(int slot, int64_t defaultValue) = 0;
+    virtual void    setCatUpdatedAt(int slot, int64_t value) = 0;
+    virtual int64_t getUserCreatedAt(int slot, int64_t defaultValue) = 0;
+    virtual void    setUserCreatedAt(int slot, int64_t value) = 0;
+    virtual int64_t getUserUpdatedAt(int slot, int64_t defaultValue) = 0;
+    virtual void    setUserUpdatedAt(int slot, int64_t value) = 0;
+
+    // Device identity (firmware hid, MAC-derived or post-Reset
+    // random) and the long-lived DeviceToken minted by the server's
+    // /api/pair/confirm. Both written by the pairing flow; read on
+    // every /api/sync call.
+    virtual bool getDeviceId   (char* buf, int bufLen) = 0;
+    virtual void setDeviceId   (const char* value) = 0;
+    virtual bool getDeviceToken(char* buf, int bufLen) = 0;
+    virtual void setDeviceToken(const char* value) = 0;
+
+    // Cached home name (= households.hid on the server). Populated
+    // when the device receives the confirmed-pairing response so
+    // offline screens can show "Smith Family" without a round-trip.
+    virtual bool getHomeName(char* buf, int bufLen) = 0;
+    virtual void setHomeName(const char* value) = 0;
+
+    // Last successful /api/sync timestamp (unix sec). Drives the
+    // sleep-entry / wake-entry sync gates in Phase E; SyncService
+    // updates on every 200 response.
+    virtual int64_t getLastSyncAt(int64_t defaultValue) = 0;
+    virtual void    setLastSyncAt(int64_t value) = 0;
 };
 
 }  // namespace feedme::ports

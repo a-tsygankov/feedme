@@ -9,21 +9,27 @@ namespace feedme::views {
 // Home — navigation hub for everything tied to a household identity.
 // Reached from the main menu's "H" glyph (replaces the old Quiet entry).
 //
-// Four items, vertically stacked, rotate-to-select + tap-to-open:
+// Five items, vertically stacked, rotate-to-select + tap-to-open:
 //   Cats   → catsList         (count shown on the right)
 //   Users  → usersList        (count shown on the right)
+//   Sync   → syncing          (manual sync; paired devices only,
+//                              greyed when unpaired)
 //   Pair   → pairing          (re-show QR; long-press there resets)
-//   Reset  → resetPairConfirm (rotate hid + reboot)
+//   Reset  → resetPairConfirm (DELETE /api/pair + wipe NVS + reboot)
 //
 // Cats/Users were previously under Settings; moved here so Settings can
 // stay focused on per-device tunables (Wi-Fi, Wake, Threshold, …) and
 // Home owns the household-scoped surface area.
 class HomeView : public IView {
 public:
-    static constexpr int ITEM_COUNT = 4;
+    static constexpr int ITEM_COUNT = 5;
 
     void setRoster    (const feedme::domain::CatRoster*  r) { roster_     = r; }
     void setUserRoster(const feedme::domain::UserRoster* r) { userRoster_ = r; }
+    // Optional — when set, the Sync row reads "is paired?" from this
+    // pointer and disables the row when unpaired (prevents the user
+    // from kicking sync against a backend that'll just 401).
+    void setIsPairedSource(const bool* p) { isPaired_ = p; }
 
     const char* name()   const override { return "home"; }
     const char* parent() const override { return "menu"; }
@@ -38,6 +44,7 @@ private:
 
     const feedme::domain::CatRoster*  roster_     = nullptr;
     const feedme::domain::UserRoster* userRoster_ = nullptr;
+    const bool*                       isPaired_   = nullptr;   // greys Sync row when false
 
     lv_obj_t* root_                          = nullptr;
     lv_obj_t* selectionArc_                  = nullptr;

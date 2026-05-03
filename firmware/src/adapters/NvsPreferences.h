@@ -81,6 +81,24 @@ public:
     int  getHidResetCount(int defaultValue) override;
     void setHidResetCount(int value) override;
 
+    // Phase C sync state.
+    int64_t getCatCreatedAt(int slot, int64_t defaultValue) override;
+    void    setCatCreatedAt(int slot, int64_t value) override;
+    int64_t getCatUpdatedAt(int slot, int64_t defaultValue) override;
+    void    setCatUpdatedAt(int slot, int64_t value) override;
+    int64_t getUserCreatedAt(int slot, int64_t defaultValue) override;
+    void    setUserCreatedAt(int slot, int64_t value) override;
+    int64_t getUserUpdatedAt(int slot, int64_t defaultValue) override;
+    void    setUserUpdatedAt(int slot, int64_t value) override;
+    bool    getDeviceId   (char* buf, int bufLen) override;
+    void    setDeviceId   (const char* value) override;
+    bool    getDeviceToken(char* buf, int bufLen) override;
+    void    setDeviceToken(const char* value) override;
+    bool    getHomeName(char* buf, int bufLen) override;
+    void    setHomeName(const char* value) override;
+    int64_t getLastSyncAt(int64_t defaultValue) override;
+    void    setLastSyncAt(int64_t value) override;
+
 private:
     ::Preferences prefs_;
     bool          ready_ = false;
@@ -109,6 +127,15 @@ private:
     static constexpr const char* KEY_HID              = "hid";
     static constexpr const char* KEY_PAIRED           = "paired";
     static constexpr const char* KEY_HID_RESET_COUNT  = "hidRstN";
+    // Phase C sync state.
+    static constexpr const char* KEY_DEVICE_ID        = "devId";
+    static constexpr const char* KEY_DEVICE_TOKEN     = "devTok";
+    static constexpr const char* KEY_HOME_NAME        = "homeNm";
+    static constexpr const char* KEY_LAST_SYNC_AT     = "lastSync";
+    // Per-cat / per-user createdAt + updatedAt — keys formatted on
+    // the fly via catSlotKey() with prefixes "cCa{slot}" / "cUa{slot}"
+    // / "uCa{slot}" / "uUa{slot}". 6-char prefix budget keeps the
+    // total ≤ NVS's 15-char limit even with 2-digit slots.
 };
 
 }  // namespace feedme::adapters

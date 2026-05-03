@@ -167,4 +167,87 @@ bool WifiNetwork::postEvent(const std::string& by, const char* type,
     return code == 200;
 }
 
+// ── Phase C — generic JSON HTTP for sync + pair lifecycle ──────────
+//
+// All three helpers share the same HTTPS-with-bearer-token boilerplate:
+//   1. early-return if WiFi isn't associated (status=0 sentinel)
+//   2. construct a one-shot WiFiClientSecure
+//   3. set a 5-second timeout and Authorization header (if provided)
+//   4. issue the verb with body (POST) or path-only (GET/DELETE)
+//   5. capture status + raw body string
+//   6. http.end() to release the connection
+//
+// Network-level failures (DNS, no route, connect timeout) surface as
+// status=0 rather than a thrown exception, matching the firmware's
+// "no exceptions" build flag and the rest of WifiNetwork's idioms.
+// SyncService treats status<200 || status>=300 as the failure path
+// and writes a sync_logs row server-side (when the request did
+// reach the server) plus a Serial log either way.
+
+namespace {
+WifiNetwork::HttpResult httpVerb(const std::string& base,
+                                 const char* path,
+                                 const char* verb,
+                                 const std::string* body,         // nullptr = no body
+                                 const std::string& bearerToken)
+{
+    WifiNetwork::HttpResult out;
+    if (WiFi.status() != WL_CONNECTED || base.empty()) return out;
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.setTimeout(HTTP_TIMEOUT_MS);
+
+    const std::string url = base + path;
+    if (!http.begin(client, url.c_str())) return out;
+    http.addHeader("content-type", "application/json");
+    if (!bearerToken.empty()) {
+        http.addHeader("Authorization",
+                       String("Bearer ") + bearerToken.c_str());
+    }
+
+    int code = 0;
+    if (strcmp(verb, "POST") == 0) {
+        code = http.POST(body ? String(body->c_str()) : String(""));
+    } else if (strcmp(verb, "DELETE") == 0) {
+        code = http.sendRequest("DELETE", body ? String(body->c_str()) : String(""));
+    } else {
+        code = http.GET();
+    }
+    out.status = code;
+    if (code > 0) {
+        // .getString() copies the payload into a String; convert to
+        // std::string so SyncService doesn't have to care about
+        // Arduino types.
+        const String s = http.getString();
+        out.body.assign(s.c_str(), s.length());
+    }
+    if (code != 200 && code != 204) {
+        Serial.printf("[net] %s %s -> %d\n", verb, path, code);
+    }
+    http.end();
+    return out;
+}
+}  // namespace
+
+WifiNetwork::HttpResult WifiNetwork::httpPostJson(
+    const char* path, const std::string& jsonBody,
+    const std::string& bearerToken)
+{
+    return httpVerb(baseUrl_, path, "POST", &jsonBody, bearerToken);
+}
+
+WifiNetwork::HttpResult WifiNetwork::httpGet(
+    const char* path, const std::string& bearerToken)
+{
+    return httpVerb(baseUrl_, path, "GET", nullptr, bearerToken);
+}
+
+WifiNetwork::HttpResult WifiNetwork::httpDelete(
+    const char* path, const std::string& bearerToken)
+{
+    return httpVerb(baseUrl_, path, "DELETE", nullptr, bearerToken);
+}
+
 }  // namespace feedme::adapters

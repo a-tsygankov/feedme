@@ -94,16 +94,24 @@ const char* PairingView::handleInput(feedme::ports::TapEvent ev) {
     switch (ev) {
         case E::Tap:
         case E::Press:
-            // User dismissed — mark paired so we don't re-show on
-            // subsequent boots, then fall back to the home screen.
-            if (onPaired_) onPaired_();
-            return "idle";
+            // Phase C: a tap on the QR no longer just dismisses the
+            // screen — it kicks off the actual pairing handshake.
+            // PairingProgressView opens the 3-min server-side window
+            // and polls /api/pair/check until the webapp Confirm
+            // button lands or the window expires. The legacy
+            // onPaired_ callback (set NVS paired flag) is now fired
+            // BY PairingProgressView on a successful confirmation
+            // instead of on this tap.
+            if (onPaired_) onPaired_();    // back-compat: caller may still
+                                           // care about "user has seen the QR"
+            return "pairingProgress";
         case E::LongPress:
         case E::LongTouch:
             // Deliberate long-press is the "I forgot the PIN / starting
-            // over" gesture. Routes to the confirm screen which rotates
-            // the hid and reboots after a tap. Cancel from there
-            // (long-press) bounces back here via parent() = "pairing".
+            // over" gesture. Routes to the confirm screen which deletes
+            // the server-side pairing, wipes local NVS, regenerates the
+            // device id, and reboots. Cancel from there (long-press)
+            // bounces back here via parent() = "pairing".
             return "resetPairConfirm";
         default:
             // Rotation is a no-op on the pairing screen.

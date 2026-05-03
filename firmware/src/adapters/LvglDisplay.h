@@ -23,10 +23,12 @@
 #include "views/IdleView.h"
 #include "views/LockConfirmView.h"
 #include "views/MenuView.h"
+#include "views/PairingProgressView.h"
 #include "views/PairingView.h"
 #include "views/PortionAdjustView.h"
 #include "views/PouringView.h"
 #include "views/ResetPairConfirmView.h"
+#include "views/SyncingView.h"
 #include "views/QuietHoursEditView.h"
 #include "views/QuietView.h"
 #include "views/ScheduleEditView.h"
@@ -92,6 +94,8 @@ public:
     feedme::views::SettingsView&    settingsView() { return settingsView_; }
     feedme::views::SetupView&       setupView()    { return setupView_; }
     feedme::views::PairingView&     pairingView()  { return pairingView_; }
+    feedme::views::PairingProgressView& pairingProgressView() { return pairingProgressView_; }
+    feedme::views::SyncingView&     syncingView()  { return syncingView_; }
     feedme::views::ResetPairConfirmView& resetPairConfirmView() { return resetPairConfirmView_; }
     feedme::views::BootView&        bootView()     { return bootView_; }
     feedme::views::HomeView&        homeView()     { return homeView_; }
@@ -160,6 +164,13 @@ private:
     // Pairing screen — shown after first boot until the user dismisses
     // it. Renders the QR code + hid for the webapp /setup deep-link.
     feedme::views::PairingView         pairingView_;
+    // Pairing progress (Phase C) — drives /api/pair/start + 15-s poll
+    // on /api/pair/check. Reached by tapping the QR; long-tap cancels.
+    feedme::views::PairingProgressView pairingProgressView_;
+    // Syncing splash (Phase C) — runs the /api/sync round-trip with
+    // running dots. Reached after a successful pair confirmation
+    // (initial sync) or from H menu → Sync (manual).
+    feedme::views::SyncingView         syncingView_;
     // Reset-pairing confirmation — reached from PairingView via long
     // press. On confirm, rotates the hid + reboots so the user can
     // start over (forgotten PIN, change of household, etc).
