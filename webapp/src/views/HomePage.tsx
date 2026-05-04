@@ -43,6 +43,15 @@ export default function HomePage() {
   const [busySlot, setBusySlot] = useState<number | null>(null);
   const [openHistorySlot, setOpenHistorySlot] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryEvent[] | null>(null);
+  // Pair-error toast — surfaced when /api/auth/setup or /login or
+  // /quick-setup completed auth but the inline pair-confirm failed
+  // (device's pair window expired, etc). Separate from `toast` because
+  // (a) it's a warning, not a success — different colour + icon, and
+  // (b) it stays for 30 s with a manual dismiss instead of the
+  // standard 1.7 s auto-fade. The user has to actually READ "go re-
+  // tap Pair on the device" and walk over there; 1.7 s is too short
+  // to even register.
+  const [pairWarning, setPairWarning] = useState<string | null>(null);
 
   // Hold the latest-known users list in a ref so the feed handler
   // doesn't capture a stale closure when called from the auto-poll.
@@ -100,15 +109,24 @@ export default function HomePage() {
 
   // One-shot pair-error toast: SetupPage / LoginPage stash a message
   // here when their inline pair-confirm failed. Read + clear on
-  // first dashboard mount. We render via flashToast so the message
-  // disappears after the standard 1.7s.
+  // first dashboard mount. Surfaced as the WARNING-style 30 s toast
+  // so the user actually sees + reads it (the green 1.7 s toast is
+  // for action confirmations like "Fed Mochi ✓"; pair-confirm
+  // failures need readable longer-lived feedback).
   useEffect(() => {
     const msg = sessionStorage.getItem(PAIR_ERROR_KEY);
     if (msg) {
       sessionStorage.removeItem(PAIR_ERROR_KEY);
-      // Slight delay so the toast doesn't get clobbered by the
+      // Slight delay so the warning doesn't get clobbered by the
       // dashboard's first paint.
-      window.setTimeout(() => flashToast(msg), 200);
+      const showT = window.setTimeout(() => setPairWarning(humanizePairError(msg)), 200);
+      // Auto-dismiss after 30 s — long enough to read + walk to
+      // the device + retry without the warning hanging forever.
+      const hideT = window.setTimeout(() => setPairWarning(null), 30200);
+      return () => {
+        window.clearTimeout(showT);
+        window.clearTimeout(hideT);
+      };
     }
   }, []);
 
@@ -279,8 +297,34 @@ export default function HomePage() {
       })}
 
       {toast && <div className="dash-toast">{toast}</div>}
+      {pairWarning && (
+        <div className="dash-toast warning" role="alert">
+          <span style={{ flex: 1 }}>{pairWarning}</span>
+          <button
+            className="dismiss"
+            aria-label="dismiss"
+            onClick={() => setPairWarning(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
     </>
   );
+}
+
+// Map raw backend pairError messages to a more user-actionable line.
+// The backend's strings already mention "tap Pair on the device" but
+// they're written for a developer audience; this softens them and
+// gives a one-line "what to do next".
+function humanizePairError(raw: string): string {
+  if (/expired|cancelled|no pending/i.test(raw)) {
+    return "Device pairing window closed before sign-in landed. Re-tap Pair on the device, then refresh this page.";
+  }
+  if (/different home/i.test(raw)) {
+    return "That device is already paired to a different home. Forget it on the device (long-press the QR), then try again.";
+  }
+  return `Couldn't pair the device: ${raw}`;
 }
 
 // ── tiny helpers ────────────────────────────────────────────────

@@ -86,6 +86,10 @@ private:
     uint32_t  lastTryMs_  = 0;            // last time we called pair/start OR pair/check
     int       startAttempts_ = 0;         // for status display ("retry #3")
     const char* terminal_ = nullptr;      // non-null = next view to transition to
+    // Title-label flash state — render() restores the default title
+    // ("Scan to pair") once millis() crosses titleFlashUntilMs_.
+    uint32_t  titleFlashUntilMs_ = 0;
+    static constexpr uint32_t TITLE_FLASH_MS = 800;
 
     // Helpers — keep render() readable.
     void setStatus(const char* msg, bool error = false);
