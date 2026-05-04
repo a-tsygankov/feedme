@@ -645,21 +645,76 @@ void setup() {
     // hold pointers for its lifetime without copying.
 #if !defined(SIMULATOR) && defined(FEEDME_BACKEND_URL)
     {
-        static char gPairHid[40] = {0};
-        static char gPairUrl[160] = {0};
+        // Read the legacy hid first — it's still used by /api/feed
+        // translation (wifiNetwork.setHid above) for back-compat with
+        // pre-Phase-A devices. But for PAIRING the QR must encode the
+        // current deviceId because that's what /api/pair/start uses
+        // server-side. After a Reset, hid is regenerated from MAC
+        // (see line ~452) but deviceId is a fresh 16-hex random
+        // (see resetPairConfirmView's onConfirm); the two diverge,
+        // and prior firmware was building the QR URL from hid →
+        // webapp signed in for one device-id while the device polled
+        // pair/check for another → infinite Pairing screen.
         char nvsHid[40]{};
-        const bool haveHid = prefs.getHid(nvsHid, sizeof(nvsHid))
-                             && nvsHid[0] != '\0';
-        if (haveHid) {
-            std::strncpy(gPairHid, nvsHid, sizeof(gPairHid) - 1);
-            // Web app origin — distinct from the Worker origin because
-            // the static SPA + the API live on different Cloudflare
-            // surfaces. Hard-coded for now; could be a build flag later.
-            snprintf(gPairUrl, sizeof(gPairUrl),
-                     "https://feedme-webapp.pages.dev/setup?hid=%s",
-                     gPairHid);
+        prefs.getHid(nvsHid, sizeof(nvsHid));
+
+        // ── SyncService wiring ─ resolve deviceId BEFORE building QR ──
+        // Done first so devBuf is the source-of-truth for both the
+        // QR URL AND /api/pair/start. For legacy devices that
+        // already have an `hid` (MAC-derived) but no `deviceId`
+        // (the new key), migrate by setting deviceId = hid. This
+        // preserves their server-side `devices` table mapping
+        // created by PR #22's migration 0004.
+        char devBuf[40] = {0};
+        if (!prefs.getDeviceId(devBuf, sizeof(devBuf)) || devBuf[0] == '\0') {
+            if (nvsHid[0] != '\0') {
+                std::strncpy(devBuf, nvsHid, sizeof(devBuf) - 1);
+                Serial.printf("[sync] migrating legacy hid '%s' → deviceId\n", devBuf);
+            } else {
+                // Generate `feedme-` + 16 random hex chars.
+                snprintf(devBuf, sizeof(devBuf), "feedme-%04x%04x%04x%04x",
+                         static_cast<unsigned>(esp_random() & 0xffff),
+                         static_cast<unsigned>(esp_random() & 0xffff),
+                         static_cast<unsigned>(esp_random() & 0xffff),
+                         static_cast<unsigned>(esp_random() & 0xffff));
+                Serial.printf("[sync] generated new deviceId '%s'\n", devBuf);
+            }
+            prefs.setDeviceId(devBuf);
         }
-        display.pairingView().setHid(gPairHid);
+        syncService.setDeviceId(devBuf);
+
+        char tokBuf[256] = {0};
+        if (prefs.getDeviceToken(tokBuf, sizeof(tokBuf)) && tokBuf[0] != '\0') {
+            syncService.setDeviceToken(tokBuf);
+            gIsPaired = true;
+            Serial.println("[sync] loaded device token from NVS — paired");
+        }
+
+        char homeBuf[64] = {0};
+        if (prefs.getHomeName(homeBuf, sizeof(homeBuf)) && homeBuf[0] != '\0') {
+            syncService.setHomeName(homeBuf);
+        }
+        syncService.setLastSyncAt(prefs.getLastSyncAt(0));
+        // Phase E — restore last-known sync interval (in seconds)
+        // from NVS so the FIRST sleep-entry gate after boot has a
+        // sensible value before the first /api/sync overwrites it.
+        // 14400 (4 h) matches backend DEFAULT_SYNC_INTERVAL_SEC.
+        syncService.setSyncIntervalSec(prefs.getSyncIntervalSec(14400));
+
+        // Build the pairing QR URL from devBuf (the *real* identity
+        // /api/pair/start uses), NOT from the legacy hid. Use the
+        // ?device= parameter; the webapp's SetupPage accepts both
+        // ?device= (preferred, post Phase D) and ?hid= (back-compat).
+        static char gPairDeviceId[40] = {0};
+        static char gPairUrl[160] = {0};
+        std::strncpy(gPairDeviceId, devBuf, sizeof(gPairDeviceId) - 1);
+        // Web app origin — distinct from the Worker origin because
+        // the static SPA + the API live on different Cloudflare
+        // surfaces. Hard-coded for now; could be a build flag later.
+        snprintf(gPairUrl, sizeof(gPairUrl),
+                 "https://feedme-webapp.pages.dev/setup?device=%s",
+                 gPairDeviceId);
+        display.pairingView().setHid(gPairDeviceId);   // shown under QR
         display.pairingView().setUrl(gPairUrl);
         // Post PR #34: PairingView OWNS the pair-handshake polling
         // loop (calls /pair/start on entry, polls /pair/check, transitions
@@ -671,52 +726,6 @@ void setup() {
             Serial.println("[pairing] auto-paired via webapp sign-in");
             gIsPaired = true;
         });
-
-        // ── Phase C: SyncService wiring ──────────────────────────
-        // Load any cached deviceId / token / homeName from NVS. For
-        // legacy devices that already have an `hid` (the MAC-derived
-        // value) but no `deviceId` (the new key), migrate by setting
-        // deviceId = hid. This preserves their server-side `devices`
-        // table mapping created by PR #22's migration 0004.
-        {
-            char devBuf[40] = {0};
-            if (!prefs.getDeviceId(devBuf, sizeof(devBuf)) || devBuf[0] == '\0') {
-                // Empty deviceId → migrate from legacy hid (if any)
-                // or generate a fresh 16-hex random for first boot.
-                if (nvsHid[0] != '\0') {
-                    std::strncpy(devBuf, nvsHid, sizeof(devBuf) - 1);
-                    Serial.printf("[sync] migrating legacy hid '%s' → deviceId\n", devBuf);
-                } else {
-                    // Generate `feedme-` + 16 random hex chars.
-                    snprintf(devBuf, sizeof(devBuf), "feedme-%04x%04x%04x%04x",
-                             static_cast<unsigned>(esp_random() & 0xffff),
-                             static_cast<unsigned>(esp_random() & 0xffff),
-                             static_cast<unsigned>(esp_random() & 0xffff),
-                             static_cast<unsigned>(esp_random() & 0xffff));
-                    Serial.printf("[sync] generated new deviceId '%s'\n", devBuf);
-                }
-                prefs.setDeviceId(devBuf);
-            }
-            syncService.setDeviceId(devBuf);
-
-            char tokBuf[256] = {0};
-            if (prefs.getDeviceToken(tokBuf, sizeof(tokBuf)) && tokBuf[0] != '\0') {
-                syncService.setDeviceToken(tokBuf);
-                gIsPaired = true;
-                Serial.println("[sync] loaded device token from NVS — paired");
-            }
-
-            char homeBuf[64] = {0};
-            if (prefs.getHomeName(homeBuf, sizeof(homeBuf)) && homeBuf[0] != '\0') {
-                syncService.setHomeName(homeBuf);
-            }
-            syncService.setLastSyncAt(prefs.getLastSyncAt(0));
-            // Phase E — restore last-known sync interval (in seconds)
-            // from NVS so the FIRST sleep-entry gate after boot has a
-            // sensible value before the first /api/sync overwrites it.
-            // 14400 (4 h) matches backend DEFAULT_SYNC_INTERVAL_SEC.
-            syncService.setSyncIntervalSec(prefs.getSyncIntervalSec(14400));
-        }
 
         // Wire the new pairing/sync views to the service + prefs.
         // PairingView itself now owns the pair-handshake poll loop
@@ -747,11 +756,17 @@ void setup() {
             Serial.println("[pairing] reset confirmed — unpair + wipe + reboot");
             // Step 1: server-side unpair (no-op if already unpaired).
             (void)syncService.unpair();
-            // Step 2: wipe local pairing + roster state.
+            // Step 2: wipe local pairing + roster state. We DO NOT
+            // wipe `hid` here (anymore) — leaving hid empty would
+            // make the next boot's captive-portal init regenerate
+            // it from MAC, which would then DIVERGE from the fresh
+            // random deviceId set below. The QR would encode one
+            // value and pair/start would use another. We now keep
+            // hid IN SYNC with deviceId by writing both to the same
+            // fresh random.
             prefs.setDeviceToken("");
             prefs.setPaired(false);
             prefs.setHomeName("");
-            prefs.setHid("");
             prefs.setLastSyncAt(0);
             prefs.setCatCount(0);
             prefs.setUserCount(0);
@@ -764,17 +779,23 @@ void setup() {
                      static_cast<unsigned>(esp_random() & 0xffff),
                      static_cast<unsigned>(esp_random() & 0xffff));
             prefs.setDeviceId(devBuf);
+            // Mirror to legacy hid so /api/feed translation lines up.
+            prefs.setHid(devBuf);
             Serial.printf("[pairing] new deviceId='%s' — rebooting\n", devBuf);
             delay(300);
             ESP.restart();
         });
 
-        // First boot? Have BootView land on the pairing screen instead
-        // of idle so the QR is the first interactive thing the user
-        // sees. Once paired (after the first tap), BootView reverts to
-        // its default "idle" landing on every subsequent boot.
-        if (haveHid && !prefs.getPaired(false)) {
-            Serial.println("[pairing] device unpaired — showing QR after boot");
+        // Show the pairing QR on boot whenever the device isn't yet
+        // paired (no DeviceToken stashed in NVS). Pre-PR-#34 this also
+        // gated on a non-empty legacy `hid`, but that gate was wrong:
+        // after a Reset the hid is wiped and only re-populated by the
+        // captive-portal init path above (line ~452). Now we gate on
+        // `!gIsPaired` instead — devBuf is always populated by the
+        // SyncService wiring block above, so the QR always has a real
+        // deviceId to encode.
+        if (!gIsPaired) {
+            Serial.printf("[pairing] device unpaired — showing QR after boot (deviceId=%s)\n", devBuf);
             display.bootView().setNext("pairing");
         }
     }
