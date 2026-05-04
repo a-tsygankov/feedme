@@ -61,13 +61,53 @@ void PairingView::build(lv_obj_t* parent) {
     lv_obj_set_style_text_color(hidLbl_, lv_color_hex(kTheme.ink), 0);
     lv_obj_set_style_text_font(hidLbl_, &lv_font_montserrat_14, 0);
     lv_label_set_text(hidLbl_, "");
-    lv_obj_align(hidLbl_, LV_ALIGN_BOTTOM_MID, 0, -38);
+    lv_obj_align(hidLbl_, LV_ALIGN_BOTTOM_MID, 0, -52);
+
+    // Live status footer — tells the user what the device is actually
+    // doing behind the scenes. Reads "waiting for sign-in" once we've
+    // successfully opened a pair window, "no Wi-Fi…" if pair/start is
+    // failing, etc. Updated by setStatus().
+    statusLbl_ = lv_label_create(root_);
+    lv_obj_set_style_text_color(statusLbl_, lv_color_hex(kTheme.dim), 0);
+    lv_obj_set_style_text_font(statusLbl_, &lv_font_montserrat_14, 0);
+    lv_label_set_text(statusLbl_, "");
+    lv_obj_align(statusLbl_, LV_ALIGN_BOTTOM_MID, 0, -32);
 
     hintLbl_ = lv_label_create(root_);
     lv_obj_set_style_text_color(hintLbl_, lv_color_hex(kTheme.faint), 0);
     lv_obj_set_style_text_font(hintLbl_, &lv_font_montserrat_14, 0);
-    lv_label_set_text(hintLbl_, "long-press for Reset");
-    lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_label_set_text(hintLbl_, "tap = retry · long-press = Reset");
+    lv_obj_align(hintLbl_, LV_ALIGN_BOTTOM_MID, 0, -14);
+}
+
+void PairingView::setStatus(const char* msg, bool error) {
+    if (!statusLbl_) return;
+    // No dedicated "alarm" colour in our palette — accentSoft is the
+    // muted rose used for warning gradients elsewhere; close enough
+    // to communicate "something's not right" without screaming red.
+    lv_obj_set_style_text_color(statusLbl_,
+        lv_color_hex(error ? kTheme.accentSoft : kTheme.dim), 0);
+    lv_label_set_text(statusLbl_, msg);
+}
+
+bool PairingView::tryPairStart() {
+    if (!svc_) return false;
+    startAttempts_++;
+    Serial.printf("[pairing] pairStart attempt #%d\n", startAttempts_);
+    const bool ok = svc_->pairStart();
+    if (ok) {
+        phase_ = Phase::Polling;
+        lastTryMs_ = millis();
+        setStatus("waiting for sign-in…");
+        Serial.println("[pairing] pairStart ok — polling for confirmation");
+    } else {
+        // Common cause: WiFi still connecting in the first second
+        // after boot. Keep retrying; render() schedules us again.
+        char buf[40];
+        snprintf(buf, sizeof(buf), "no network — retry #%d", startAttempts_);
+        setStatus(buf, /*error=*/true);
+    }
+    return ok;
 }
 
 void PairingView::onEnter() {
@@ -82,27 +122,14 @@ void PairingView::onEnter() {
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
     Serial.printf("[pairing] showing hid='%s' url='%s'\n", hid_, url_);
 
-    // Open the 3-minute pair window server-side IMMEDIATELY. Without
-    // this the user could scan the QR + sign in on the webapp before
-    // /pair/start ever fires, and the backend's confirmPairingFor
-    // would 404 (no pending row), leaving the device stuck on this
-    // screen forever. lastPollMs_=0 makes the first /pair/check fire
-    // on the very next render() tick so a fast confirmation lands
-    // sub-second instead of waiting 15 s.
-    enteredMs_  = millis();
-    lastPollMs_ = 0;
-    terminal_   = nullptr;
-    startedOk_  = false;
-    if (svc_) {
-        svc_->clearCancel();
-        startedOk_ = svc_->pairStart();
-        if (!startedOk_) {
-            // Network failed; show the QR anyway but the auto-pair
-            // poll won't have anything to find. Render() leaves the
-            // view active so a long-press → Reset is still reachable.
-            Serial.println("[pairing] pairStart failed; QR shown but no auto-pair poll");
-        }
-    }
+    // Reset state for a fresh handshake every time we enter.
+    enteredMs_     = millis();
+    lastTryMs_     = 0;            // forces a pair/start on the next render tick
+    terminal_      = nullptr;
+    phase_         = Phase::Starting;
+    startAttempts_ = 0;
+    if (svc_) svc_->clearCancel();
+    setStatus("connecting…");
 }
 
 void PairingView::onLeave() {
@@ -112,17 +139,35 @@ void PairingView::onLeave() {
 void PairingView::render(const feedme::ports::DisplayFrame&) {
     if (terminal_) return;        // already decided to leave; ScreenManager polls nextView()
     if (!svc_)     return;
-    if (!startedOk_) return;      // no pending_pairings row to poll for
 
     const uint32_t now = millis();
-    if (now - lastPollMs_ < POLL_INTERVAL_MS && lastPollMs_ != 0) return;
-    lastPollMs_ = now;
+
+    // ── Phase: Starting — keep retrying pair/start on START_RETRY_MS
+    //    cadence until the network comes up. Without this, a device
+    //    that boots faster than its WiFi associates would set
+    //    startedOk_=false in the old code and never recover.
+    if (phase_ == Phase::Starting) {
+        if (lastTryMs_ != 0 && now - lastTryMs_ < START_RETRY_MS) return;
+        lastTryMs_ = now;
+        tryPairStart();
+        return;
+    }
+
+    // ── Phase: Polling — fire pair/check on POLL_INTERVAL_MS or
+    //    immediately if a tap forced it.
+    const uint32_t interval = (phase_ == Phase::ForcePollNext) ? 0 : POLL_INTERVAL_MS;
+    if (now - lastTryMs_ < interval) return;
+    lastTryMs_ = now;
+    if (phase_ == Phase::ForcePollNext) {
+        phase_ = Phase::Polling;
+        setStatus("checking now…");
+    }
 
     using PR = feedme::application::SyncService::PairResult;
     const PR result = svc_->pairCheck();
     switch (result) {
         case PR::Pending:
-            /* keep waiting; QR stays visible */
+            setStatus("waiting for sign-in…");
             break;
         case PR::Confirmed:
             Serial.println("[pairing] confirmed — persisting token + home name");
@@ -135,27 +180,29 @@ void PairingView::render(const feedme::ports::DisplayFrame&) {
             // listening for "user successfully paired" still gets
             // notified (main.cpp uses this to flip a runtime flag).
             if (onPaired_) onPaired_();
+            setStatus("paired ✓");
             // Hand off to the SyncingView for the initial roster sync.
             terminal_ = "syncing";
             break;
         case PR::Expired:
         case PR::Cancelled:
-            // Server window timed out OR was cancelled by /pair/cancel.
-            // Reopen by simply re-entering this view. We restart from
-            // scratch via onEnter — pair/start is INSERT OR REPLACE so
-            // a re-call is safe.
+            // Server window timed out OR was cancelled. Restart the
+            // handshake by going back to Starting — the next render
+            // tick will call pair/start (INSERT OR REPLACE; safe to
+            // re-call). User sees the status flip to "connecting…".
             Serial.printf("[pairing] window terminal (%d) — restarting\n",
                           static_cast<int>(result));
-            startedOk_ = svc_ ? svc_->pairStart() : false;
-            lastPollMs_ = millis();   // back off one full interval
+            phase_ = Phase::Starting;
+            lastTryMs_ = 0;          // try again on next tick, no wait
+            startAttempts_ = 0;
+            setStatus("re-opening window…");
             break;
         case PR::NetworkError:
         case PR::UnknownStatus:
-            // Transient. Keep the QR up and try the next poll cycle.
-            // Don't churn pair/start on every poll — that would burn
-            // through pending_pairings rows uselessly.
+            // Transient on our side. Keep the QR up and try next cycle.
             Serial.printf("[pairing] poll error (%d) — retrying next cycle\n",
                           static_cast<int>(result));
+            setStatus("network blip — retrying", /*error=*/true);
             break;
     }
 }
@@ -172,16 +219,23 @@ const char* PairingView::handleInput(feedme::ports::TapEvent ev) {
             // bounces back here via parent() = "pairing".
             return "resetPairConfirm";
         case E::Tap:
-        case E::Press:
-            // Tap is now a no-op — the user's only job is to scan the
-            // QR with their phone and sign in via the webapp; the
-            // poll loop in render() does the rest. We deliberately
-            // DON'T transition to PairingProgressView anymore: PR #34
-            // made the auth handlers do pair-confirm inline, so the
-            // separate "tap to begin pairing" step is gone. The
-            // hint label points at long-press → Reset as the only
-            // remaining device-side affordance.
+        case E::Press: {
+            // Tap = "force a retry now". Useful in two cases:
+            //   1. Device booted before WiFi was ready and pair/start
+            //      keeps failing — tap forces an immediate retry
+            //      instead of waiting out the START_RETRY_MS gap.
+            //   2. User just signed in on the webapp and is impatient
+            //      for the device to notice — tap forces a /pair/check
+            //      poll right now instead of waiting up to 15 s.
+            if (phase_ == Phase::Starting) {
+                lastTryMs_ = 0;          // next render tick: immediate retry
+                setStatus("retrying connection…");
+            } else {
+                phase_ = Phase::ForcePollNext;
+                lastTryMs_ = 0;
+            }
             return nullptr;
+        }
         default:
             return nullptr;
     }

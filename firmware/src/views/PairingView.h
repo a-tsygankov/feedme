@@ -68,18 +68,34 @@ private:
     feedme::application::SyncService* svc_   = nullptr;
     feedme::ports::IPreferences*      prefs_ = nullptr;
 
-    lv_obj_t* root_     = nullptr;
-    lv_obj_t* titleLbl_ = nullptr;
-    lv_obj_t* qrcode_   = nullptr;
-    lv_obj_t* hidLbl_   = nullptr;
-    lv_obj_t* hintLbl_  = nullptr;
+    lv_obj_t* root_      = nullptr;
+    lv_obj_t* titleLbl_  = nullptr;
+    lv_obj_t* qrcode_    = nullptr;
+    lv_obj_t* hidLbl_    = nullptr;
+    lv_obj_t* hintLbl_   = nullptr;
+    lv_obj_t* statusLbl_ = nullptr;       // bottom status: "waiting…" / "polling" / "tap to retry"
 
     // Polling state (millis()-based).
+    enum class Phase {
+        Starting,        // pair/start hasn't succeeded yet — keep retrying every START_RETRY_MS
+        Polling,         // pair/start ok; pair/check on POLL_INTERVAL_MS cadence
+        ForcePollNext,   // tap requested an out-of-band immediate poll
+    };
+    Phase     phase_      = Phase::Starting;
     uint32_t  enteredMs_  = 0;
-    uint32_t  lastPollMs_ = 0;
-    bool      startedOk_  = false;        // did /pair/start succeed?
+    uint32_t  lastTryMs_  = 0;            // last time we called pair/start OR pair/check
+    int       startAttempts_ = 0;         // for status display ("retry #3")
     const char* terminal_ = nullptr;      // non-null = next view to transition to
 
+    // Helpers — keep render() readable.
+    void setStatus(const char* msg, bool error = false);
+    bool tryPairStart();   // calls svc_->pairStart, updates phase_ + status
+
+    // pair/start retry happens fast — WiFi might still be connecting on
+    // boot, but once it's up we want to converge in a couple seconds.
+    static constexpr uint32_t START_RETRY_MS  = 3000;
+    // pair/check polling once paired window is open — server-side rows
+    // last 3 min so 15 s gives at most 11 polls per window.
     static constexpr uint32_t POLL_INTERVAL_MS = 15000;
 };
 
