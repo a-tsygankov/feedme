@@ -661,13 +661,15 @@ void setup() {
         }
         display.pairingView().setHid(gPairHid);
         display.pairingView().setUrl(gPairUrl);
-        // Phase C: tap on the QR no longer flips the NVS paired flag
-        // directly — that happens INSIDE PairingProgressView once the
-        // server confirms. Leaving onPaired_ as a no-op keeps the
-        // view's existing API stable; PairingView::handleInput now
-        // returns "pairingProgress" on tap.
+        // Post PR #34: PairingView OWNS the pair-handshake polling
+        // loop (calls /pair/start on entry, polls /pair/check, transitions
+        // to "syncing" on confirmed). The tap-to-begin step is gone —
+        // the user's only job is to scan + sign in on the webapp.
+        // onPaired fires when /pair/check returns confirmed; main.cpp
+        // uses it to flip the runtime paired flag.
         display.pairingView().setOnPaired(+[]() {
-            Serial.println("[pairing] tap → pairing progress (Phase C handshake)");
+            Serial.println("[pairing] auto-paired via webapp sign-in");
+            gIsPaired = true;
         });
 
         // ── Phase C: SyncService wiring ──────────────────────────
@@ -717,6 +719,11 @@ void setup() {
         }
 
         // Wire the new pairing/sync views to the service + prefs.
+        // PairingView itself now owns the pair-handshake poll loop
+        // (post PR #34); PairingProgressView is kept registered for
+        // back-compat but is no longer reachable from the QR screen.
+        display.pairingView().setSyncService(&syncService);
+        display.pairingView().setPreferences(&prefs);
         display.pairingProgressView().setSyncService(&syncService);
         display.pairingProgressView().setPreferences(&prefs);
         display.syncingView().setSyncService(&syncService);
