@@ -40,6 +40,7 @@ import {
   hashPin, isTransparentHome, issueUserToken,
   buildSessionCookie, type AuthInfo,
 } from "./auth";
+import { recordAuthLog } from "./audit";
 import type { Env } from "./env";
 import { confirmPairingFor } from "./pair";
 
@@ -88,8 +89,10 @@ function randomHex(bytes: number): string {
 export async function postQuickSetup(
   env: Env, body: unknown, secret: string,
 ): Promise<Response> {
+  const startMs = Date.now();
   const b = (body ?? {}) as { deviceId?: string };
   if (typeof b.deviceId !== "string" || !b.deviceId.trim()) {
+    await recordAuthLog(env, null, "quick-setup", null, "error", "deviceId required", startMs);
     return json({ error: "deviceId required" }, { status: 400 });
   }
   const deviceId = b.deviceId.trim();
@@ -101,6 +104,7 @@ export async function postQuickSetup(
   ).bind(deviceId).first<{ home_hid: string }>();
   if (existing) {
     const token = await issueUserToken(existing.home_hid, secret);
+    await recordAuthLog(env, existing.home_hid, "quick-setup", deviceId, "ok", "alreadyPaired", startMs);
     return json(
       { token, hid: existing.home_hid, alreadyPaired: true },
       { status: 200 },
@@ -121,22 +125,19 @@ export async function postQuickSetup(
     expires_at: number; cancelled_at: number | null; confirmed_at: number | null;
   }>();
   if (!pending) {
-    return json(
-      { error: "device hasn't requested pairing — tap Pair on the device first" },
-      { status: 409 },
-    );
+    const msg = "device hasn't requested pairing — tap Pair on the device first";
+    await recordAuthLog(env, null, "quick-setup", deviceId, "error", msg, startMs);
+    return json({ error: msg }, { status: 409 });
   }
   if (pending.cancelled_at) {
-    return json(
-      { error: "device cancelled pairing — re-tap Pair on the device" },
-      { status: 410 },
-    );
+    const msg = "device cancelled pairing — re-tap Pair on the device";
+    await recordAuthLog(env, null, "quick-setup", deviceId, "error", msg, startMs);
+    return json({ error: msg }, { status: 410 });
   }
   if (pending.expires_at <= now && !pending.confirmed_at) {
-    return json(
-      { error: "device's pairing window expired — re-tap Pair on the device" },
-      { status: 410 },
-    );
+    const msg = "device's pairing window expired — re-tap Pair on the device";
+    await recordAuthLog(env, null, "quick-setup", deviceId, "error", msg, startMs);
+    return json({ error: msg }, { status: 410 });
   }
 
   // Fresh transparent home: generate hid, insert with empty
@@ -154,6 +155,7 @@ export async function postQuickSetup(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[quick-setup] household insert failed: ${msg}`);
+    await recordAuthLog(env, hid, "quick-setup", deviceId, "error", `household insert: ${msg}`, startMs);
     return json({ error: `quick-setup failed: ${msg}` }, { status: 500 });
   }
 
@@ -162,11 +164,13 @@ export async function postQuickSetup(
   const pair = await confirmPairingFor(env, hid, deviceId, secret);
   if (!pair.ok) {
     console.warn(`[quick-setup] '${hid}' created but pairing failed (race?): ${pair.error}`);
+    await recordAuthLog(env, hid, "quick-setup", deviceId, "error", pair.error, startMs);
     return json({ error: pair.error }, { status: pair.status });
   }
 
   const userToken = await issueUserToken(hid, secret);
   console.log(`[quick-setup] created transparent home '${hid}' for device '${deviceId}' (paired in one shot)`);
+  await recordAuthLog(env, hid, "quick-setup", deviceId, "ok", null, startMs);
   return json({ token: userToken, hid }, { status: 200 }, buildSessionCookie(userToken));
 }
 
@@ -188,6 +192,7 @@ export async function postQuickSetup(
 export async function postLoginTokenCreate(
   env: Env, authed: Extract<AuthInfo, { type: "device" }>,
 ): Promise<Response> {
+  const startMs = Date.now();
   const pair = await env.DB.prepare(
     `SELECT id FROM pairings
      WHERE device_id = ? AND home_hid = ? AND is_deleted = 0
@@ -195,6 +200,7 @@ export async function postLoginTokenCreate(
   ).bind(authed.deviceId, authed.hid).first<{ id: number }>();
   if (!pair) {
     console.warn(`[login-token-create] revoked-device attempt: device='${authed.deviceId}' hid='${authed.hid}'`);
+    await recordAuthLog(env, authed.hid, "login-token-create", authed.deviceId, "error", "pairing revoked", startMs);
     return json(
       { error: "device pairing has been revoked; re-pair from H menu" },
       { status: 401 },
@@ -211,6 +217,7 @@ export async function postLoginTokenCreate(
      VALUES (?, ?, ?, ?, ?, NULL)`,
   ).bind(token, authed.deviceId, authed.hid, now, expiresAt).run();
 
+  await recordAuthLog(env, authed.hid, "login-token-create", authed.deviceId, "ok", null, startMs);
   return json({ token, expiresAt });
 }
 
@@ -232,8 +239,10 @@ export async function postLoginTokenCreate(
 export async function postLoginQr(
   env: Env, body: unknown, secret: string,
 ): Promise<Response> {
+  const startMs = Date.now();
   const b = (body ?? {}) as { deviceId?: string; token?: string };
   if (typeof b.deviceId !== "string" || typeof b.token !== "string") {
+    await recordAuthLog(env, null, "login-qr", null, "error", "deviceId and token required", startMs);
     return json({ error: "deviceId and token required" }, { status: 400 });
   }
   const row = await env.DB.prepare(
@@ -243,24 +252,26 @@ export async function postLoginQr(
     home_hid: string; expires_at: number;
     consumed_at: number | null; device_id: string;
   }>();
-  if (!row) return json({ error: "unknown token" }, { status: 404 });
+  if (!row) {
+    await recordAuthLog(env, null, "login-qr", b.deviceId, "error", "unknown token", startMs);
+    return json({ error: "unknown token" }, { status: 404 });
+  }
   // deviceId-mismatch is checked BEFORE the consume attempt so a
   // probing attacker who somehow learned a token can't trip the
   // single-use lock by guessing wrong deviceIds (the legit phone
   // would then get "already consumed" instead of being able to use
   // its valid token).
   if (row.device_id !== b.deviceId) {
+    await recordAuthLog(env, row.home_hid, "login-qr", b.deviceId, "error", "deviceId mismatch", startMs);
     return json({ error: "deviceId mismatch" }, { status: 403 });
   }
   const now = Math.floor(Date.now() / 1000);
   if (row.expires_at <= now) {
+    await recordAuthLog(env, row.home_hid, "login-qr", b.deviceId, "error", "token expired", startMs);
     return json({ error: "token expired (60s TTL)" }, { status: 410 });
   }
   if (row.consumed_at !== null) {
-    // Cheap pre-check before attempting the UPDATE. Doesn't change
-    // correctness (the conditional UPDATE would catch this anyway)
-    // but saves the round-trip when the token's been consumed
-    // long enough that a second caller is just retrying.
+    await recordAuthLog(env, row.home_hid, "login-qr", b.deviceId, "error", "token already consumed", startMs);
     return json({ error: "token already consumed" }, { status: 410 });
   }
 
@@ -271,11 +282,13 @@ export async function postLoginQr(
     "UPDATE login_qr_tokens SET consumed_at = ? WHERE token = ? AND consumed_at IS NULL",
   ).bind(now, b.token).run();
   if ((res.meta.changes ?? 0) === 0) {
+    await recordAuthLog(env, row.home_hid, "login-qr", b.deviceId, "error", "race lost", startMs);
     return json({ error: "token already consumed" }, { status: 410 });
   }
 
   const token = await issueUserToken(row.home_hid, secret);
   console.log(`[login-qr] consumed token for device '${b.deviceId}' → home '${row.home_hid}'`);
+  await recordAuthLog(env, row.home_hid, "login-qr", b.deviceId, "ok", null, startMs);
   return json(
     { token, hid: row.home_hid },
     { status: 200 },
@@ -291,15 +304,21 @@ export async function postLoginQr(
 export async function postSetPin(
   env: Env, authed: Extract<AuthInfo, { type: "user" }>, body: unknown,
 ): Promise<Response> {
+  const startMs = Date.now();
   const b = (body ?? {}) as { pin?: string };
   if (typeof b.pin !== "string" || b.pin.length < 4) {
+    await recordAuthLog(env, authed.hid, "set-pin", null, "error", "pin too short", startMs);
     return json({ error: "pin too short (min 4)" }, { status: 400 });
   }
   const row = await env.DB.prepare(
     "SELECT pin_salt, pin_hash FROM households WHERE hid = ?",
   ).bind(authed.hid).first<{ pin_salt: string; pin_hash: string }>();
-  if (!row) return json({ error: "no such home" }, { status: 404 });
+  if (!row) {
+    await recordAuthLog(env, authed.hid, "set-pin", null, "error", "no such home", startMs);
+    return json({ error: "no such home" }, { status: 404 });
+  }
   if (!isTransparentHome(row)) {
+    await recordAuthLog(env, authed.hid, "set-pin", null, "error", "already has PIN", startMs);
     return json({ error: "PIN already set; use change-pin (not yet implemented)" },
                 { status: 409 });
   }
@@ -311,5 +330,6 @@ export async function postSetPin(
   ).bind(salt, hash, Math.floor(Date.now() / 1000), authed.hid).run();
 
   console.log(`[set-pin] home '${authed.hid}' upgraded transparent → PIN-protected`);
+  await recordAuthLog(env, authed.hid, "set-pin", null, "ok", null, startMs);
   return json({ ok: true });
 }

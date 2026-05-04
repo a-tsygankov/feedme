@@ -2,6 +2,7 @@ import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { auth } from "./lib/api";
 import CatsPage from "./views/CatsPage";
 import HomePage from "./views/HomePage";
+import AuthLogPage from "./views/AuthLogPage";
 import LoginPage from "./views/LoginPage";
 import QrLoginPage from "./views/QrLoginPage";
 import SettingsPage from "./views/SettingsPage";
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/users"      element={isAuthed ? <UsersPage />   : <Navigate to="/login" replace />} />
         <Route path="/settings"   element={isAuthed ? <SettingsPage />: <Navigate to="/login" replace />} />
         <Route path="/sync-log"   element={isAuthed ? <SyncLogPage /> : <Navigate to="/login" replace />} />
+        <Route path="/auth-log"   element={isAuthed ? <AuthLogPage /> : <Navigate to="/login" replace />} />
         <Route path="*"           element={<Navigate to="/" replace />} />
       </Routes>
       {isAuthed && (

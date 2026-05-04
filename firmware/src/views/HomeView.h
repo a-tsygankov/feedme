@@ -4,6 +4,8 @@
 #include "domain/UserRoster.h"
 #include "views/IView.h"
 
+#include <string>
+
 namespace feedme::views {
 
 // Home — navigation hub for everything tied to a household identity.
@@ -33,6 +35,13 @@ public:
     // pointer and disables the row when unpaired (prevents the user
     // from kicking sync against a backend that'll just 401).
     void setIsPairedSource(const bool* p) { isPaired_ = p; }
+    // Home name (= households.hid on the server) cached from the last
+    // successful pair confirmation. Rendered above the menu rows so
+    // the user can confirm at a glance which home this device is
+    // signed into. Takes a pointer to a live std::string (typically
+    // SyncService's internal homeName_) so the value stays current
+    // without an explicit refresh hook on every pair confirmation.
+    void setHomeNameSource(const std::string* src) { homeNameSrc_ = src; }
 
     const char* name()   const override { return "home"; }
     const char* parent() const override { return "menu"; }
@@ -45,11 +54,13 @@ public:
 private:
     void redraw();
 
-    const feedme::domain::CatRoster*  roster_     = nullptr;
-    const feedme::domain::UserRoster* userRoster_ = nullptr;
-    const bool*                       isPaired_   = nullptr;   // greys Sync row when false
+    const feedme::domain::CatRoster*  roster_      = nullptr;
+    const feedme::domain::UserRoster* userRoster_  = nullptr;
+    const bool*                       isPaired_    = nullptr;  // greys Sync row when false
+    const std::string*                homeNameSrc_ = nullptr;  // shown above the menu
 
     lv_obj_t* root_                          = nullptr;
+    lv_obj_t* homeNameLbl_                   = nullptr;
     lv_obj_t* selectionArc_                  = nullptr;
     lv_obj_t* rowContainers_[ITEM_COUNT]     = {nullptr};
     lv_obj_t* rowIcons_     [ITEM_COUNT]     = {nullptr};

@@ -240,6 +240,14 @@ export default function SettingsPage() {
         View sync log
       </button>
 
+      <button
+        className="secondary"
+        onClick={() => navigate("/auth-log")}
+        style={{ width: "100%", marginBottom: 12 }}
+      >
+        View pair / login log
+      </button>
+
       {/* Phase F — set-PIN card. Visible only for transparent (no-PIN)
           homes; for PIN-protected homes the change-PIN flow ships
           separately. We refresh /me after success so the card hides

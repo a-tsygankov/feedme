@@ -741,6 +741,10 @@ void setup() {
         // a QR. Same DeviceToken flow as syncing/unpair.
         display.loginQrView().setSyncService(&syncService);
         display.homeView().setIsPairedSource(&gIsPaired);
+        // HomeView reads the home name live from the SyncService's
+        // internal std::string — stays current after Reset → re-pair
+        // without an explicit refresh call.
+        display.homeView().setHomeNameSource(&syncService.homeName());
 
         // Reset-pairing confirmation (Phase C rewrite). On confirm:
         //   1. DELETE /api/pair/<deviceId> with the current device

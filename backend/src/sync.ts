@@ -129,8 +129,20 @@ export function isSyncUser(u: unknown): u is SyncUser {
 // ── merge primitives ─────────────────────────────────────────────
 // Each merge function returns the conflict count contribution: 1
 // if the incoming and existing updated_at are within CONFLICT_WINDOW_SEC
-// of each other (suggests two devices wrote near-simultaneously),
-// 0 otherwise.
+// of each other AND DIFFERENT (suggests two devices wrote near-
+// simultaneously). 0 when they're identical (steady-state echo —
+// same data round-tripping unchanged) or when one is far ahead of
+// the other (one side is just stale).
+//
+// The `diff > 0` guard is the bug fix that stops every sync from
+// reporting a conflict for every entity. Pre-fix, a freshly-paired
+// device whose roster hadn't changed would still show N conflicts
+// (one per cat/user) on every sync because `Math.abs(X - X) = 0`
+// was being counted as "within the window."
+function isConflict(clientUpdatedAt: number, serverUpdatedAt: number): boolean {
+  const diff = Math.abs(clientUpdatedAt - serverUpdatedAt);
+  return diff > 0 && diff < CONFLICT_WINDOW_SEC;
+}
 
 async function mergeHome(env: Env, hid: string, h: SyncHome): Promise<number> {
   const row = await env.DB.prepare(
@@ -148,7 +160,7 @@ async function mergeHome(env: Env, hid: string, h: SyncHome): Promise<number> {
       "UPDATE households SET updated_at = ? WHERE hid = ?",
     ).bind(h.updatedAt, hid).run();
   }
-  return Math.abs(h.updatedAt - row.updated_at) < CONFLICT_WINDOW_SEC ? 1 : 0;
+  return isConflict(h.updatedAt, row.updated_at) ? 1 : 0;
 }
 
 // uuid lookup wins over (hid, slot_id) when the client provides one.
@@ -200,7 +212,7 @@ async function mergeCat(env: Env, hid: string, c: SyncCat): Promise<number> {
     return 0;
   }
 
-  const conflict = Math.abs(c.updatedAt - row.updated_at) < CONFLICT_WINDOW_SEC ? 1 : 0;
+  const conflict = isConflict(c.updatedAt, row.updated_at) ? 1 : 0;
   if (c.updatedAt <= row.updated_at) return conflict;     // server wins
 
   // Client wins → UPDATE. Backfill uuid if the row was missing one
@@ -251,7 +263,7 @@ async function mergeUser(env: Env, hid: string, u: SyncUser): Promise<number> {
     return 0;
   }
 
-  const conflict = Math.abs(u.updatedAt - row.updated_at) < CONFLICT_WINDOW_SEC ? 1 : 0;
+  const conflict = isConflict(u.updatedAt, row.updated_at) ? 1 : 0;
   if (u.updatedAt <= row.updated_at) return conflict;
 
   await env.DB.prepare(

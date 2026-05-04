@@ -56,7 +56,14 @@ export default function QrLoginPage() {
       .then(({ token: sessionToken, hid }) => {
         auth.set(sessionToken, hid);
         setPhase("done");
-        navigate("/", { replace: true });
+        // Use a full-page navigation instead of React Router's navigate
+        // so HomePage mounts with completely fresh state. Earlier we
+        // used navigate("/", { replace: true }) but the user reported
+        // having to manually refresh to see their home info — most
+        // likely a stale-state edge case where some component had
+        // already mounted with the pre-auth context. window.location
+        // .replace bypasses all of that with a clean slate.
+        window.location.replace("/");
       })
       .catch((e) => {
         if (e instanceof ApiError) {
