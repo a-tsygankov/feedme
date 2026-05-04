@@ -134,7 +134,11 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
     char kickerBuf[64];
     const char* catName = (roster_ && rosterCount >= 1) ? roster_->active().name : "";
     if (catName && catName[0] != '\0') {
-        snprintf(kickerBuf, sizeof(kickerBuf), "%s  ·  %s", catName, ageBuf);
+        // ASCII-only separator. The earlier "·" (U+00B7) renders as a
+        // missing-glyph box in the Montserrat 14 font shipped with the
+        // firmware (no Latin Supplement glyphs), which manifested as
+        // "Tiri[box]fed 12m ago" in the user's screenshot.
+        snprintf(kickerBuf, sizeof(kickerBuf), "%s - %s", catName, ageBuf);
     } else {
         snprintf(kickerBuf, sizeof(kickerBuf), "%s", ageBuf);
     }

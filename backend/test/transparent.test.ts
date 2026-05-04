@@ -154,15 +154,17 @@ describe("postQuickSetup", () => {
   });
 
   it("creates household + pairings + devices + updates pending_pairings, returns 200 + cookie", async () => {
-    // SQL order (post-confirmPairingFor refactor):
+    // SQL order (post-2026-05 default-cat-and-user seed refactor):
     //   1. existing-pairing check (none)
     //   2. pre-check pending_pairings (fresh, not cancelled)
     //   3. INSERT households
-    //   4. confirmPairingFor: re-read pending_pairings (fresh)
-    //   5. confirmPairingFor: SELECT pairings (none — first time for this device)
-    //   6. confirmPairingFor: INSERT pairings
-    //   7. confirmPairingFor: INSERT devices
-    //   8. confirmPairingFor: UPDATE pending_pairings { confirmed_at, device_token }
+    //   4. INSERT cats (default seed: name='Cat')
+    //   5. INSERT users (default seed: name='User')
+    //   6. confirmPairingFor: re-read pending_pairings (fresh)
+    //   7. confirmPairingFor: SELECT pairings (none — first time for this device)
+    //   8. confirmPairingFor: INSERT pairings
+    //   9. confirmPairingFor: INSERT devices
+    //   10. confirmPairingFor: UPDATE pending_pairings { confirmed_at, device_token }
     const now = Math.floor(Date.now() / 1000);
     const householdParams: unknown[][] = [];
     const pendingUpdateParams: unknown[][] = [];
@@ -172,6 +174,11 @@ describe("postQuickSetup", () => {
         first: { expires_at: now + 175, cancelled_at: null, confirmed_at: null } },
       { match: ["INSERT INTO households", "pin_salt"],
         capture: (p) => householdParams.push(p) },
+      // 2026-05: default cat + user seeded server-side so the webapp
+      // dashboard isn't blank between Quick-Start and the device's
+      // first sync push.
+      { match: ["INSERT INTO cats", "'Cat'"] },
+      { match: ["INSERT INTO users", "'User'"] },
       // confirmPairingFor's full row read (extra columns).
       { match: ["FROM pending_pairings", "home_hid"],
         first: { expires_at: now + 175, home_hid: null,
@@ -184,7 +191,7 @@ describe("postQuickSetup", () => {
     ]);
     const res = await postQuickSetup(env, { deviceId: "feedme-fresh" }, SECRET);
     expect(res.status).toBe(200);
-    expect(consumed.i).toBe(8);
+    expect(consumed.i).toBe(10);   // see SQL-order list above (was 8 pre-seed)
     const body = await res.json() as { token: string; hid: string };
     expect(body.hid).toMatch(/^home-[0-9a-f]{16}$/);
     // Household INSERT was given empty pin_salt (transparent sentinel).

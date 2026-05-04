@@ -147,7 +147,8 @@ const char* UsersListView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press: {
-            if (selectedIdx_ == 0) return "settings";
+            // Done row → back to H menu (Users lives there now).
+            if (selectedIdx_ == 0) return "home";
             const int userIdx = selectedIdx_ - 1;
             // User row → no editor in v0 (name editing currently needs
             // the captive portal). Log + stay so the press registers.

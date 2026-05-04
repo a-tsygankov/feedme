@@ -24,11 +24,16 @@ namespace {
 constexpr int    R_ORBIT  = 70;     // px from centre
 constexpr int    GLYPH_PX = 40;     // glyph circle diameter
 
+// Per user feedback (2026-05): Schedule renamed to "Calendar" with a
+// "C" glyph (was "S" — clashed visually with Settings). Settings glyph
+// changed from "G" (Gear, less obvious) to "S" — matches the word
+// directly. The destination route name stays "schedule" so we don't
+// have to rename ScheduleView.
 const char* const kLabels[MenuView::ITEM_COUNT] = {
-    "Feed", "Schedule", "Home", "Settings",
+    "Feed", "Calendar", "Home", "Settings",
 };
 const char* const kGlyphs[MenuView::ITEM_COUNT] = {
-    "F",    "S",        "H",    "G",
+    "F",    "C",        "H",    "S",
 };
 const char* const kDest[MenuView::ITEM_COUNT] = {
     "feedConfirm", "schedule", "home", "settings",

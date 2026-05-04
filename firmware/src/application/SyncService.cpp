@@ -238,9 +238,14 @@ bool SyncService::syncFull() {
 
     if (res.status == 401) {
         lastError_ = "unauthorized — pairing revoked, re-pair from H menu";
-        Serial.println("[sync] 401 — clearing local pairing state");
+        Serial.println("[sync] 401 — clearing local pairing state + flagging revoke");
         deviceToken_.clear();
         homeName_.clear();
+        // Latch the revoke so main.cpp's tick loop can wipe NVS +
+        // flip gIsPaired + transition back to PairingView. Without
+        // this the firmware would just show "Failed" on SyncingView
+        // and bounce back to idle still THINKING it's paired.
+        pairingRevoked_ = true;
         return false;
     }
     if (res.status != 200) {
@@ -287,9 +292,10 @@ bool SyncService::loginTokenCreate() {
     auto res = net_.httpPostJson(API_LOGIN_TOKEN, "{}", deviceToken_);
     if (res.status == 401) {
         lastError_ = "unauthorized — pairing revoked, re-pair from H menu";
-        Serial.println("[sync] login-token-create 401 — clearing pairing state");
+        Serial.println("[sync] login-token-create 401 — clearing pairing state + flagging revoke");
         deviceToken_.clear();
         homeName_.clear();
+        pairingRevoked_ = true;
         return false;
     }
     if (res.status != 200) {
