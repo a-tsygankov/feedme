@@ -123,11 +123,13 @@ void PairingView::onEnter() {
     Serial.printf("[pairing] showing hid='%s' url='%s'\n", hid_, url_);
 
     // Reset state for a fresh handshake every time we enter.
-    enteredMs_     = millis();
-    lastTryMs_     = 0;            // forces a pair/start on the next render tick
-    terminal_      = nullptr;
-    phase_         = Phase::Starting;
-    startAttempts_ = 0;
+    enteredMs_         = millis();
+    lastTryMs_         = 0;        // forces a pair/start on the next render tick
+    terminal_          = nullptr;
+    phase_             = Phase::Starting;
+    startAttempts_     = 0;
+    titleFlashUntilMs_ = 0;
+    if (titleLbl_) lv_label_set_text(titleLbl_, "Scan to pair");
     if (svc_) svc_->clearCancel();
     setStatus("connecting…");
 }
@@ -141,6 +143,15 @@ void PairingView::render(const feedme::ports::DisplayFrame&) {
     if (!svc_)     return;
 
     const uint32_t now = millis();
+
+    // Restore the default title once a tap-flash has elapsed. We can't
+    // do this in handleInput because it happens off-frame; doing it
+    // here means "Retrying" stays visible for at least one full
+    // render cycle even if the network completes faster than 800 ms.
+    if (titleFlashUntilMs_ != 0 && now >= titleFlashUntilMs_) {
+        titleFlashUntilMs_ = 0;
+        if (titleLbl_) lv_label_set_text(titleLbl_, "Scan to pair");
+    }
 
     // ── Phase: Starting — keep retrying pair/start on START_RETRY_MS
     //    cadence until the network comes up. Without this, a device
@@ -227,12 +238,26 @@ const char* PairingView::handleInput(feedme::ports::TapEvent ev) {
             //   2. User just signed in on the webapp and is impatient
             //      for the device to notice — tap forces a /pair/check
             //      poll right now instead of waiting up to 15 s.
+            //
+            // Loud Serial log so a user with a serial monitor can
+            // confirm the tap event is actually reaching this view —
+            // earlier reports had "tap not working" and we couldn't
+            // tell if the sensor wasn't firing or if the handler was
+            // doing nothing visible. Now it logs unambiguously, AND
+            // the title flashes to "Retrying" for a beat so the user
+            // gets feedback even without a serial monitor.
+            Serial.printf("[pairing] tap (%s) → forcing retry (phase=%d)\n",
+                          ev == E::Tap ? "touch" : "encoder",
+                          static_cast<int>(phase_));
+            if (titleLbl_) lv_label_set_text(titleLbl_, "Retrying");
+            titleFlashUntilMs_ = millis() + TITLE_FLASH_MS;
             if (phase_ == Phase::Starting) {
                 lastTryMs_ = 0;          // next render tick: immediate retry
-                setStatus("retrying connection…");
+                setStatus("tap registered — retrying connection…");
             } else {
                 phase_ = Phase::ForcePollNext;
                 lastTryMs_ = 0;
+                setStatus("tap registered — checking now…");
             }
             return nullptr;
         }

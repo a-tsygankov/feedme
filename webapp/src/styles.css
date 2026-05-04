@@ -333,6 +333,45 @@ nav.tabs a.active {
   z-index: 1000;
 }
 
+/* Warning variant — for surfacing pair-confirm failures and similar
+ * recoverable errors. Amber background communicates "something's
+ * not right" without screaming red, AND it stays put for 30 s with
+ * a manual dismiss because losing the message in 1.7 s is no good
+ * when the user needs to read + act on it (re-tap Pair on device,
+ * etc). pointer-events:auto so the close button is clickable.        */
+.dash-toast.warning {
+  background: #f59e0b;
+  color: #0e0817;
+  box-shadow: 0 4px 14px rgba(245,158,11,.45);
+  /* No auto-fade animation — stays until either the 30 s JS timeout
+   * or the user clicks the close button. The .3s fade-in still runs. */
+  animation: feedme-toast-in .3s ease;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 32px));
+  text-align: left;
+  font-weight: 600;
+}
+.dash-toast.warning .dismiss {
+  background: rgba(14,8,23,.18);
+  border: none;
+  color: #0e0817;
+  font-weight: 800;
+  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+.dash-toast.warning .dismiss:hover {
+  background: rgba(14,8,23,.32);
+}
+
 @keyframes feedme-ring-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.55; }
