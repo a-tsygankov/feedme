@@ -195,9 +195,36 @@ async function mergeCat(env: Env, hid: string, c: SyncCat): Promise<number> {
   const scheduleJson = JSON.stringify(c.scheduleHours);
   // Resolve final uuid: client's wins if present, else server's
   // existing row, else mint a fresh one for INSERT.
-  const uuid = c.uuid ?? row?.uuid ?? newUuid();
+  let uuid = c.uuid ?? row?.uuid ?? newUuid();
 
   if (!row) {
+    // Defensive cross-home uuid de-collision before INSERT. The
+    // unique index on cats(uuid) is GLOBAL (across all homes), so
+    // the firmware carrying a uuid from a previous pairing into a
+    // new home would 500 the sync with a SQLITE_CONSTRAINT_UNIQUE.
+    //
+    // Repro: device paired to home-A, learns uuid='X' for slot 0;
+    // user "Forget device" in webapp + re-pair to home-B (Quick-
+    // Start). Device's NVS still holds the cat at slot 1 (or any
+    // slot-id home-B doesn't have) with uuid='X'. findCatRow misses
+    // both byUuid (different hid) and slot_id (no row) → INSERT path
+    // with uuid='X' → fails because 'X' is in use under home-A.
+    //
+    // Fix: when the client-supplied uuid already exists ANYWHERE in
+    // the table, mint a fresh one and INSERT under that. The next
+    // sync response teaches the device its new identity for this
+    // home; the previous-home row is left untouched (it's still
+    // owned by the original home).
+    if (c.uuid) {
+      const collision = await env.DB.prepare(
+        "SELECT 1 AS x FROM cats WHERE uuid = ?",
+      ).bind(c.uuid).first<{ x: number }>();
+      if (collision) {
+        const fresh = newUuid();
+        console.warn(`[sync] cat uuid '${c.uuid}' already in use across homes — minting '${fresh}' for hid='${hid}' slot_id=${c.slotId}`);
+        uuid = fresh;
+      }
+    }
     // Server didn't know about this cat (under either uuid OR slot_id
     // — both lookups missed). INSERT verbatim with the resolved uuid.
     await env.DB.prepare(
@@ -251,9 +278,22 @@ async function findUserRow(
 
 async function mergeUser(env: Env, hid: string, u: SyncUser): Promise<number> {
   const row = await findUserRow(env, hid, u);
-  const uuid = u.uuid ?? row?.uuid ?? newUuid();
+  let uuid = u.uuid ?? row?.uuid ?? newUuid();
 
   if (!row) {
+    // Same cross-home uuid de-collision as mergeCat — see the long
+    // comment block there for rationale. Same scenario applies to
+    // users: device's NVS keeps user uuids across unpair/re-pair.
+    if (u.uuid) {
+      const collision = await env.DB.prepare(
+        "SELECT 1 AS x FROM users WHERE uuid = ?",
+      ).bind(u.uuid).first<{ x: number }>();
+      if (collision) {
+        const fresh = newUuid();
+        console.warn(`[sync] user uuid '${u.uuid}' already in use across homes — minting '${fresh}' for hid='${hid}' slot_id=${u.slotId}`);
+        uuid = fresh;
+      }
+    }
     await env.DB.prepare(
       `INSERT INTO users
         (hid, slot_id, name, color, created_at, updated_at, is_deleted, uuid)
