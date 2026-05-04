@@ -204,6 +204,14 @@ async function main() {
       return r;
     });
 
+  // Empty-list sync: an unpaired-then-just-paired device can send an
+  // empty cats[] / users[] before its first local seeds land. Server
+  // must accept this as a no-op, return its own state (also empty),
+  // and not crash. Regression check after the user's "Check how sync
+  // handles empty lists" report.
+  console.log(`\n  ── empty-list sync ───────────────────────────────`);
+  await runEmptyListSyncScenario();
+
   // pairError surface check: login WITH deviceId but WITHOUT a prior
   // /pair/start should still succeed (auth ok) but include pairError
   // in the response so the webapp can surface a recovery toast.
@@ -225,6 +233,87 @@ async function main() {
 
   console.log(`\n  ${failed === 0 ? "✓ all assertions passed" : `✗ ${failed} assertion(s) failed`}`);
   process.exit(failed === 0 ? 0 : 1);
+}
+
+// Empty-list sync: confirms the backend accepts cats=[] / users=[]
+// without crashing. Mirrors the firmware's first-sync-after-pair
+// state when its local rosters happen to have no entries (rare —
+// firmware seeds locally on boot — but a possible edge if the user
+// deleted everything via the webapp first). Also covers the
+// auto-pair → empty-sync → expected-empty-response loop.
+async function runEmptyListSyncScenario() {
+  const devId = `feedme-empty-${Date.now().toString(16)}`;
+  const homeHid = `empty-home-${Date.now()}`;
+
+  await call("POST", "/api/pair/start", { deviceId: devId });
+  const setup = await call("POST", "/api/auth/setup",
+    { hid: homeHid, pin: "0000", deviceId: devId });
+  if (setup.status !== 200) {
+    log("[empty-list] precondition setup", "fail", `status=${setup.status}`);
+    return;
+  }
+  const ut = setup.body.token;
+  const check = await call("GET", `/api/pair/check?deviceId=${devId}`);
+  const dt = check.body?.token;
+  if (!dt) { log("[empty-list] got DeviceToken", "fail", `body=${JSON.stringify(check.body)}`); return; }
+
+  // Empty rosters in the request body — both arrays present but
+  // length 0. Server should: accept the body, run zero merge calls,
+  // return whatever it has on file. PIN-setup homes have no
+  // server-side defaults, so the response should also be empty.
+  const emptyBody = {
+    schemaVersion: 1, deviceId: devId, lastSyncAt: null,
+    home: { name: homeHid, updatedAt: 0 },
+    cats: [],
+    users: [],
+  };
+  const sync = await call("POST", "/api/sync", emptyBody, dt);
+  if (sync.status !== 200) {
+    log("[empty-list] sync 200 for empty rosters", "fail",
+        `status=${sync.status} body=${sync.text?.slice(0, 80)}`);
+    await call("DELETE", "/api/auth/household", null, ut);
+    return;
+  }
+  const cats  = Array.isArray(sync.body?.cats)  ? sync.body.cats  : null;
+  const users = Array.isArray(sync.body?.users) ? sync.body.users : null;
+  if (!cats || !users) {
+    log("[empty-list] response has cats[] + users[]", "fail",
+        `cats=${typeof sync.body?.cats} users=${typeof sync.body?.users}`);
+  } else {
+    log("[empty-list] empty rosters round-trip cleanly", "ok",
+        `req cats=0 users=0 → resp cats=${cats.length} users=${users.length}`);
+  }
+
+  // Quick-Start variant: server SHOULD seed 1 cat + 1 user. Verify.
+  const qsDev = `feedme-qs-empty-${Date.now().toString(16)}`;
+  await call("POST", "/api/pair/start", { deviceId: qsDev });
+  const qs = await call("POST", "/api/auth/quick-setup", { deviceId: qsDev });
+  const qsToken = qs.body?.token;
+  if (qs.status !== 200 || !qsToken) {
+    log("[empty-list] quick-setup precondition", "fail", `status=${qs.status}`);
+    await call("DELETE", "/api/auth/household", null, ut);
+    return;
+  }
+  const qsCheck = await call("GET", `/api/pair/check?deviceId=${qsDev}`);
+  const qsDt = qsCheck.body?.token;
+  const qsSync = await call("POST", "/api/sync", {
+    schemaVersion: 1, deviceId: qsDev, lastSyncAt: null,
+    home: { name: qs.body.hid, updatedAt: 0 },
+    cats: [], users: [],
+  }, qsDt);
+  const qsCats  = qsSync.body?.cats  ?? [];
+  const qsUsers = qsSync.body?.users ?? [];
+  if (qsCats.length === 1 && qsUsers.length === 1
+      && qsCats[0]?.name === "Cat" && qsUsers[0]?.name === "User") {
+    log("[empty-list] Quick-Start home seeded with 1 cat + 1 user", "ok",
+        `cat='${qsCats[0].name}' user='${qsUsers[0].name}'`);
+  } else {
+    log("[empty-list] Quick-Start home seeded with 1 cat + 1 user", "fail",
+        `cats=${qsCats.length} users=${qsUsers.length}`);
+  }
+
+  await call("DELETE", "/api/auth/household", null, ut);
+  await call("DELETE", "/api/auth/household", null, qsToken);
 }
 
 // One full firmware-side simulation of the auto-pair handshake. Used

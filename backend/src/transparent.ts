@@ -152,6 +152,33 @@ export async function postQuickSetup(
          (hid, pin_salt, pin_hash, created_at, name, updated_at, is_deleted)
        VALUES (?, '', '', ?, '', ?, 0)`,
     ).bind(hid, now, now).run();
+
+    // Seed defaults so the webapp dashboard has something to show
+    // immediately. Without this, Quick-Start lands the user on a
+    // blank dashboard until the device's first sync push lands the
+    // firmware-side default cat + user a few seconds later.
+    //
+    // Defaults match what the firmware seeds locally on first boot
+    // (CatRoster::seedDefaultIfEmpty / UserRoster::seedDefaultIfEmpty)
+    // — slot 0, name "Cat" / "User", default portion 40 g, hungry
+    // threshold 5 h, schedule [7,12,18,21]. Server-minted UUIDs so
+    // the firmware learns the canonical identity on its first sync
+    // response.
+    const catUuid  = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    const userUuid = crypto.randomUUID().replace(/-/g, "").toLowerCase();
+    await env.DB.prepare(
+      `INSERT INTO cats
+         (hid, slot_id, name, color, slug, default_portion_g,
+          hungry_threshold_sec, schedule_hours,
+          created_at, updated_at, is_deleted, uuid)
+       VALUES (?, 0, 'Cat', 0, 'C2', 40, 18000, '[7,12,18,21]',
+               ?, ?, 0, ?)`,
+    ).bind(hid, now, now, catUuid).run();
+    await env.DB.prepare(
+      `INSERT INTO users
+         (hid, slot_id, name, color, created_at, updated_at, is_deleted, uuid)
+       VALUES (?, 0, 'User', 0, ?, ?, 0, ?)`,
+    ).bind(hid, now, now, userUuid).run();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[quick-setup] household insert failed: ${msg}`);

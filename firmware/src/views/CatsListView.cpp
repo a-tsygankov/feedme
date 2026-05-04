@@ -157,8 +157,8 @@ const char* CatsListView::handleInput(feedme::ports::TapEvent ev) {
             return nullptr;
         case E::Tap:
         case E::Press: {
-            // Done row.
-            if (selectedIdx_ == 0) return "settings";
+            // Done row → back to H menu (Cats lives there now).
+            if (selectedIdx_ == 0) return "home";
             const int catIdx = selectedIdx_ - 1;
             // Cat row.
             if (catIdx < roster_->count()) {

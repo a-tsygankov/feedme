@@ -931,6 +931,26 @@ void loop() {
     if (now - lastServiceTickMs >= 1000) {
         lastServiceTickMs = now;
         feeding.tick();
+
+#if !defined(SIMULATOR)
+        // Pairing-revoke handling: when /api/sync (or login-token-create)
+        // returns 401, SyncService latches a flag. We consume it here
+        // and undo all the local pairing state so the device flips
+        // back to PairingView and the user can re-pair via the QR.
+        // Without this, a "Forget device" click in the webapp would
+        // leave the firmware THINKING it's still paired — Sync would
+        // keep failing silently from the H menu.
+        if (syncService.consumePairingRevoked()) {
+            Serial.println("[main] pairing revoked by server — wiping NVS + back to PairingView");
+            prefs.setDeviceToken("");
+            prefs.setPaired(false);
+            prefs.setHomeName("");
+            prefs.setLastSyncAt(0);
+            gIsPaired = false;
+            display.transitionTo("pairing");
+        }
+#endif
+
         // Phase E — wake-entry gate runs BEFORE the sleep tick so a
         // user who taps to wake doesn't immediately get sleep-entry'd
         // again on the same second.

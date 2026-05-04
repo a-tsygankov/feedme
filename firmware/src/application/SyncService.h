@@ -84,6 +84,18 @@ public:
     bool cancelRequested() const { return cancelRequested_; }
     void clearCancel() { cancelRequested_ = false; }
 
+    // Pairing-revoked latch — set by syncFull() on 401 (the server
+    // saw our DeviceToken but the pairings row is is_deleted=1, i.e.
+    // the user clicked "Forget device" in the webapp). Read once by
+    // main.cpp's tick loop; the consumer is expected to clear NVS
+    // + flip gIsPaired + transition back to PairingView. Cleared by
+    // the consumer call so the same revoke isn't replayed every tick.
+    bool consumePairingRevoked() {
+        const bool v = pairingRevoked_;
+        pairingRevoked_ = false;
+        return v;
+    }
+
     // ── Pair lifecycle ───────────────────────────────────────────
     // POST /api/pair/start { deviceId } → opens a 3-min window
     // server-side. Idempotent (server uses INSERT OR REPLACE).
@@ -158,6 +170,8 @@ private:
     std::string                        loginToken_;
     int64_t                            loginTokenExpiresAt_ = 0;
     bool                               cancelRequested_ = false;
+    // See consumePairingRevoked() above.
+    bool                               pairingRevoked_  = false;
     std::string                        lastError_;
 
     // Build the JSON body for POST /api/sync. Pulled out so it can

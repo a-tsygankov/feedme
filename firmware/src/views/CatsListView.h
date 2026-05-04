@@ -27,7 +27,10 @@ public:
     void setEditTarget(CatEditView* editView) { editView_ = editView; }
 
     const char* name()   const override { return "catsList"; }
-    const char* parent() const override { return "settings"; }
+    // Long-press → "back up" gesture lands on the H menu (Cats lives
+    // there now post-2026-04 reorg). Was "settings" pre-2026-05 when
+    // Cats was a Settings sub-screen.
+    const char* parent() const override { return "home"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;

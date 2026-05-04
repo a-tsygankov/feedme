@@ -23,7 +23,8 @@ public:
     void setRoster(feedme::domain::UserRoster* roster) { roster_ = roster; }
 
     const char* name()   const override { return "usersList"; }
-    const char* parent() const override { return "settings"; }
+    // Same parent fix as CatsListView — Users moved into the H menu.
+    const char* parent() const override { return "home"; }
     void  build(lv_obj_t* parent) override;
     void  onEnter() override;
     void  onLeave() override;
