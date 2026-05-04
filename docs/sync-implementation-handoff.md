@@ -865,9 +865,286 @@ When this lands, confirm by visual inspection on a paired device:
 
 ---
 
-*End of handoff. All Q1–Q10 decisions in §2 are locked. Phase F
+*End of original handoff. All Q1–Q10 decisions in §2 are locked. Phase F
 adds transparent accounts, device-side Login QR, and HTTP-only
 session cookies (§6.3–6.6). Implementation proceeds against this
 spec on `dev-22` starting with Phase A (migrations + auth scaffolding);
 Phase F can land in parallel with Phase B/C/D since the new endpoints
 don't depend on sync working.*
+
+---
+
+## 14. Implementation log: decisions made post-Q10
+
+> Living section — appended whenever the implementation surfaces a
+> question the original spec didn't answer. Each entry has a
+> "decision", "why", and "PR" so future readers can trace the
+> reasoning back to the actual change. Phases A–F shipped via
+> PRs #26 → #34; subsequent fix passes via #35 → #40.
+
+### D1. Pairing handshake completes inline on auth (PR #34, #38)
+
+**Decision:** `POST /api/auth/setup`, `/login`, and `/quick-setup`
+all call `confirmPairingFor(env, hid, deviceId, secret)` inline
+when the request carries a `deviceId`. The legacy two-step flow
+(auth response → dashboard "Confirm pairing" banner click → POST
+`/api/pair/confirm`) is removed.
+
+**Why:** the original spec's "user clicks Confirm in the webapp"
+banner was a real UX trap — users scanned the QR, signed in, and
+expected the device to be paired. The banner felt like an extra
+hoop; many users dismissed it and ended up with the device stuck
+on its Pairing screen. Inline pair-confirm completes the handshake
+in one round-trip with no extra clicks. Failure mode (rare: device's
+3-min `/pair/start` window expired between QR-scan and submit)
+returns `pairError` in the response body so the dashboard can flash
+a recovery toast.
+
+**Side effect:** `/api/pair/confirm` becomes a thin back-compat
+wrapper. The dashboard banner code is removed. `confirmPairingFor`
+also enforces idempotency so a retried request just re-issues the
+DeviceToken (same `alreadyPaired: true` semantics as before).
+
+### D2. Pairing QR encodes `deviceId`, not `hid` (PR #38)
+
+**Decision:** the QR URL the device displays contains
+`?device=<deviceId>` (the firmware's stable, NVS-persisted random
+16-hex id). Earlier code used `?hid=<legacy-hid>` which is the
+pre-Phase-A MAC-derived id, and after a Reset those two values
+diverge — webapp signed in for one device-id while `/pair/check`
+polled for another → infinite Pairing screen.
+
+**Why:** the legacy `hid` field is regenerated from MAC by the
+captive-portal init when NVS is empty (post-Reset). The post-Phase-D
+`deviceId` is the source of truth for `/api/pair/*` endpoints.
+Webapp's `SetupPage` accepts both `?device=` (preferred) and `?hid=`
+(back-compat with old QRs in the wild).
+
+**Reset semantics tweaked too:** Reset now mirrors the new fresh
+deviceId into the legacy `hid` slot (instead of wiping `hid`),
+keeping the two in lock-step so the captive-portal regeneration
+becomes a no-op.
+
+### D3. `PairingView` owns the `/pair/start` + `/pair/check` loop (PR #35, #36)
+
+**Decision:** the device's first-boot QR screen calls `/pair/start`
+on entry and polls `/pair/check` every 15 s by itself, rather than
+deferring to a separate `PairingProgressView` reachable via tap.
+
+**Why:** the original two-screen design had `PairingView` showing
+the QR (passive) and `PairingProgressView` doing the actual work
+after the user tapped the device. Nobody tapped the device — they
+scanned the QR with their phone and went off to the webapp. The
+device sat on the QR forever. Single-screen loop fixes this.
+
+**Resilience added:** a Phase state machine retries `/pair/start`
+on `START_RETRY_MS = 3 s` cadence until it succeeds (handles
+WiFi-not-ready-at-boot). Once paired-window-then-cancelled, drops
+back to the start phase. Tap forces an immediate retry of whichever
+step is current; long-press routes to `ResetPairConfirmView`.
+
+`PairingProgressView` stays compiled + registered for back-compat
+but isn't reachable from `PairingView` anymore.
+
+### D4. Device responds to server-side unpair via `pairingRevoked_` latch (PR #40)
+
+**Decision:** when `POST /api/sync` (or `/api/auth/login-token-create`)
+returns 401 with `error="pairing has been revoked"`, `SyncService`
+sets a one-shot `pairingRevoked_` latch. `main.cpp`'s 1 Hz tick
+loop polls `consumePairingRevoked()` and on revoke: clears NVS
+(deviceToken / paired flag / homeName / lastSyncAt), flips
+`gIsPaired = false`, transitions to `"pairing"`. PairingView's
+existing `/pair/start` retry loop then re-opens a fresh handshake
+automatically.
+
+**Why:** the original spec was silent on what happens when the
+webapp clicks "Forget device". Pre-fix, `SyncService::syncFull`
+cleared its in-memory `deviceToken_` but `main.cpp` never noticed;
+the user could keep tapping Sync from H menu and getting the same
+401 forever, never realising they'd been unpaired.
+
+### D5. Cross-home UUID de-collision (PR #41)
+
+**Decision:** the unique index `cats(uuid)` is GLOBAL across all
+homes, NOT per-home. To keep that property safe, `mergeCat` and
+`mergeUser` check for cross-home uuid collisions before INSERT
+and mint a fresh uuid server-side when found. The device learns
+the new uuid on the sync response.
+
+**Why:** firmware NVS retains cat/user uuids across unpair / re-pair
+cycles. So a device that paired into home-A (learned uuid `X`),
+got unpaired, and paired into home-B (Quick-Start, seeds `Y`)
+would send a cat at slot 1 with uuid `X`. `findCatRow` misses
+both `byUuid` (different hid) and `slot_id` (no row at slot 1)
+→ INSERT path → SQLITE_CONSTRAINT_UNIQUE because `X` is in use
+under home-A. Server-side re-mint avoids the constraint without
+touching the cross-home global-unique invariant.
+
+**Alternative considered:** per-home `(hid, uuid)` unique index,
+which would have allowed `X` in two homes. Rejected: globally
+unique uuids simplify every other layer's mental model (URL
+references, log queries, future cross-home features).
+
+### D6. Quick-Start seeds 1 cat + 1 user server-side (PR #40)
+
+**Decision:** `POST /api/auth/quick-setup` INSERTs a default cat
+(slot 0, name "Cat", `C2` slug, 40 g portion, 5 h hungry threshold,
+`[7,12,18,21]` schedule) and a default user (slot 0, name "User")
+in the same transaction as the household + pairings + devices rows.
+
+**Why:** matches the firmware's local seed-on-first-boot behaviour
+so the webapp dashboard isn't blank between Quick-Start completion
+and the device's first sync push. Without this, users hit
+"empty home" confusion for the ~5 s before sync ran.
+
+The firmware's `seedDefaultIfEmpty()` still runs on boot — when
+sync brings down the server's seeded cat, the device's local seed
+is overwritten with the server-canonical row (server wins on LWW
+because the firmware's seed has `updatedAt = 0`).
+
+### D7. LWW conflict counting requires diff > 0 (PR #39)
+
+**Decision:** a conflict is counted only when
+`Math.abs(client.updatedAt - server.updated_at) > 0 AND < CONFLICT_WINDOW_SEC`.
+Pre-fix the implementation used `< CONFLICT_WINDOW_SEC` only,
+which counted "identical timestamps" (steady state) as a conflict.
+
+**Why:** sync log was reporting N conflicts on every sync (one per
+entity) because the firmware sends back what it received with
+identical updatedAt; `Math.abs(X - X) = 0` was passing the window
+test. Real conflicts (two devices wrote in the same ~5 s) still
+get counted.
+
+### D8. Session cookies + Authorization header coexist (PR #31, #34)
+
+**Decision:** every auth-issuing endpoint (`/api/auth/setup`,
+`/login`, `/quick-setup`, `/login-qr`, `/pair/confirm`) ALSO sets a
+`feedme.session` cookie (HttpOnly, Secure, SameSite=Lax, 30-day
+Max-Age, same TTL as the UserToken). `authFromRequest` reads
+`Authorization: Bearer …` first, falls back to the cookie.
+
+**Why:** browser-based clients no longer need to juggle the token in
+JS at all — the cookie auto-attaches on every same-origin fetch.
+The Authorization header path stays canonical for non-browser
+callers (firmware, curl, smoke tests). HttpOnly defends against
+XSS exfiltration; the localStorage token still exists for
+client-side `auth.validPayload()` routing decisions but a leaked
+token can't outlive a Logout (cookie is cleared on `/auth/household`
+DELETE).
+
+### D9. Transparent home sentinel: empty `pin_salt`/`pin_hash` (PR #31, #33)
+
+**Decision:** transparent (no-PIN) homes are stored as households
+with `pin_salt = ""` AND `pin_hash = ""`. `isTransparentHome(row)`
+returns `true` when EITHER column is empty (defensive against
+partial writes). `/api/auth/login` returns 409 for transparent
+homes ("use the Login QR flow"); `/api/auth/set-pin` only succeeds
+when `isTransparentHome` is true.
+
+**Why:** avoids a destructive migration to make `pin_salt` / `pin_hash`
+nullable. Empty strings can't collide with real PBKDF2 outputs
+(which are 64-char hex). The OR semantics in `isTransparentHome`
+let `set-pin` recover from a hypothetical half-set state instead
+of locking the user out.
+
+### D10. `auth_logs` table for pair/login audit trail (PR #39)
+
+**Decision:** new migration 0011 adds an `auth_logs` table
+recording every pair-start, pair-confirm, setup, login, quick-setup,
+login-token-create, login-qr, set-pin event. 100-row ring buffer
+per home, pruned on each insert. Surface: `GET /api/auth/log`
+(UserToken) + `/auth-log` webapp page reachable from Settings.
+
+**Why:** the user couldn't tell why pairing flows failed without
+reading Worker logs. Sync_logs only covers `/api/sync` events;
+the new table covers the rest of the auth surface. Logging is
+fire-and-forget (try/catch around the INSERT) so audit failures
+can never break the underlying request.
+
+### D11. Always show cat name on IdleView + FeedConfirmView (PR #39)
+
+**Decision:** drop the `rosterCount >= 2` gate on cat-name display
+in `IdleView` and `FeedConfirmView`. Names always render when
+they're set.
+
+**Why:** the original "adaptive UI" pattern hid the cat name for
+single-cat households on the theory that "the cat is implicit."
+Users who deliberately named their pet wanted to see the name;
+hiding it felt like the device wasn't using their data.
+
+### D12. Login-QR consumption is atomic (PR #33)
+
+**Decision:** `/api/auth/login-qr` uses a conditional
+`UPDATE login_qr_tokens SET consumed_at = ? WHERE token = ? AND consumed_at IS NULL`
+and checks `meta.changes` to detect the loser of a race. The
+earlier check-then-update sequence had a window where two
+concurrent calls both passed the null-check.
+
+**Why:** D1 calls are remote and concurrent requests for the same
+token aren't hypothetical. Single-use must mean single-use even
+under load. Verified via parallel curl: two simultaneous POSTs
+with the same token return `200 410`.
+
+### D13. `login-token-create` gates on active pairing (PR #33)
+
+**Decision:** before minting a Login-QR token, server SELECTs
+from `pairings WHERE device_id = ? AND home_hid = ? AND is_deleted = 0`
+and 401s if missing.
+
+**Why:** DeviceToken is HMAC-signed with a 365-day TTL and there's
+no token-revocation list. Without this gate, a "forgotten" device
+(pairings.is_deleted = 1) could still mint phone-login QRs that
+granted strangers session access into the home that kicked it out.
+Same gate would be valuable on `/api/sync` too — that's a tracked
+follow-up.
+
+### D14. Phase E firmware sleep-entry sync gate (PR #32)
+
+**Decision:** `main.cpp`'s PowerManager (the inline `powerTickAndMaybeSleep`
++ `powerWakeIfSleeping` pair) calls `syncService.maybeSync(now)`
+at sleep-entry. If the gate triggers (now − lastSyncAt ≥
+syncIntervalSec), transitions to `SyncingView` and DEFERS the
+backlight-off via `PowerState::sleepAfterSync` until the view
+returns to `idle`. Wake-entry uses the same gate via
+`wakeSyncPending` set in `powerWakeIfSleeping`.
+
+**Why:** spec Q3 called for "sync at sleep-entry AND wake-entry";
+this is the simplest implementation that doesn't need a new task /
+async runtime. `syncIntervalSec` is per-home (migration 0009),
+edited from the webapp Settings → Sync card, and cached in NVS
+(key `syncIntS`) so the first post-boot gate has a sensible value
+before the first /api/sync overwrites it.
+
+### D15. SyncingView title stays "Syncing" through success (PR #39)
+
+**Decision:** removed the title-overwrite-to-"Synced" on the
+success path. Title stays as "Syncing" until the screen-change
+transitions out. Failure ("Failed") and cancellation ("Cancelled")
+still overwrite since the user needs to read those.
+
+**Why:** users found the brief "Synced" → screen-change confusing
+("the sync is over but the screen still says 'sync'?"). The
+transition itself is the success signal.
+
+---
+
+## 15. Open follow-ups (not yet decided)
+
+- **Per-home unique index for cats.uuid?** D5 mints fresh uuids on
+  cross-home collision; cleaner alternative is to migrate the index
+  to `(hid, uuid)`. Trade-off discussed in D5.
+- **DeviceToken revocation for `/api/sync`.** Same shape as the
+  fix in D13 but lower blast radius. Would touch every authed
+  handler that takes a DeviceToken.
+- **`login_qr_tokens` GC sweep.** No periodic prune; rows accumulate
+  forever. ~50 bytes/row, low priority.
+- **Home name editing surface.** `mergeHome` accepts updates but
+  there's no UI to edit a home's name (would need to rewrite hid
+  + every cats/users/events FK). Out of scope for v1.
+- **Auth log row gets orphaned when pair-start logs with hid=null.**
+  Per-home view doesn't show pre-confirmation pair-start attempts.
+  Would need either re-log on confirmation or a separate "global"
+  view.
+
+*End of implementation log. Append new entries as new decisions
+get made; preserve old ones so the PR-number trail stays intact.*

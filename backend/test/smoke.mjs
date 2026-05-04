@@ -212,6 +212,14 @@ async function main() {
   console.log(`\n  ── empty-list sync ───────────────────────────────`);
   await runEmptyListSyncScenario();
 
+  // Cross-home uuid collision: device carries a cat uuid from a
+  // previous pairing into a new home. Reproduces the
+  // SQLITE_CONSTRAINT_UNIQUE failure the user hit on cats.uuid; the
+  // fix mints a fresh uuid server-side and INSERTs under it instead
+  // of letting the constraint trip.
+  console.log(`\n  ── cross-home uuid collision ──────────────────────`);
+  await runCrossHomeCollisionScenario();
+
   // pairError surface check: login WITH deviceId but WITHOUT a prior
   // /pair/start should still succeed (auth ok) but include pairError
   // in the response so the webapp can surface a recovery toast.
@@ -314,6 +322,112 @@ async function runEmptyListSyncScenario() {
 
   await call("DELETE", "/api/auth/household", null, ut);
   await call("DELETE", "/api/auth/household", null, qsToken);
+}
+
+// Reproduces the bug from the user's screenshot: device carries a
+// cat (and user) uuid from a previous home's pairing into a new
+// home. Without the cross-home de-collision fix in mergeCat, the
+// server INSERTs with the device's uuid which is already in use
+// under home-A → SQLITE_CONSTRAINT_UNIQUE → 500 sync failure.
+async function runCrossHomeCollisionScenario() {
+  // Use a deterministic uuid so we can assert it gets rewritten by
+  // the server. 16 bytes random-but-fixed → 32 hex chars.
+  const sharedUuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const sharedUserUuid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  // Home A: claim the uuid first by syncing a cat with it.
+  const devA = `feedme-collA-${Date.now().toString(16)}`;
+  const hidA = `cross-A-${Date.now()}`;
+  await call("POST", "/api/pair/start", { deviceId: devA });
+  const setupA = await call("POST", "/api/auth/setup",
+    { hid: hidA, pin: "1111", deviceId: devA });
+  if (setupA.status !== 200) {
+    log("[cross-home] precondition: home A created", "fail",
+        `status=${setupA.status}`);
+    return;
+  }
+  const utA = setupA.body.token;
+  const checkA = await call("GET", `/api/pair/check?deviceId=${devA}`);
+  const dtA = checkA.body?.token;
+  await call("POST", "/api/sync", {
+    schemaVersion: 1, deviceId: devA, lastSyncAt: null,
+    home: { name: hidA, updatedAt: 0 },
+    cats: [{
+      uuid: sharedUuid,
+      slotId: 0, name: "MochiA", color: 0, slug: "C2",
+      defaultPortionG: 40, hungryThresholdSec: 18000,
+      scheduleHours: [7,12,18,21],
+      createdAt: 1700000000, updatedAt: 1700000000, isDeleted: false,
+    }],
+    users: [{
+      uuid: sharedUserUuid,
+      slotId: 0, name: "AndreyA", color: 0,
+      createdAt: 1700000000, updatedAt: 1700000000, isDeleted: false,
+    }],
+  }, dtA);
+
+  // Home B: NEW home + NEW device. Device sends the SAME shared
+  // uuid (simulates re-pair after the device's NVS retained it).
+  // This is where the constraint would have tripped pre-fix.
+  const devB = `feedme-collB-${Date.now().toString(16)}`;
+  const hidB = `cross-B-${Date.now()}`;
+  await call("POST", "/api/pair/start", { deviceId: devB });
+  const setupB = await call("POST", "/api/auth/setup",
+    { hid: hidB, pin: "2222", deviceId: devB });
+  if (setupB.status !== 200) {
+    log("[cross-home] precondition: home B created", "fail",
+        `status=${setupB.status}`);
+    await call("DELETE", "/api/auth/household", null, utA);
+    return;
+  }
+  const utB = setupB.body.token;
+  const checkB = await call("GET", `/api/pair/check?deviceId=${devB}`);
+  const dtB = checkB.body?.token;
+  // Send a cat at slot 1 (so slot_id lookup ALSO misses) with the
+  // shared uuid → forces the INSERT path with collision-prone uuid.
+  const syncB = await call("POST", "/api/sync", {
+    schemaVersion: 1, deviceId: devB, lastSyncAt: null,
+    home: { name: hidB, updatedAt: 0 },
+    cats: [{
+      uuid: sharedUuid,
+      slotId: 1, name: "MochiB", color: 0, slug: "C2",
+      defaultPortionG: 40, hungryThresholdSec: 18000,
+      scheduleHours: [7,12,18,21],
+      createdAt: 1700000001, updatedAt: 1700000001, isDeleted: false,
+    }],
+    users: [{
+      uuid: sharedUserUuid,
+      slotId: 1, name: "AndreyB", color: 0,
+      createdAt: 1700000001, updatedAt: 1700000001, isDeleted: false,
+    }],
+  }, dtB);
+
+  if (syncB.status !== 200) {
+    log("[cross-home] sync with reused uuid succeeds (pre-fix would 500)", "fail",
+        `status=${syncB.status} body=${syncB.text?.slice(0, 100)}`);
+  } else {
+    // Server should have re-minted: home-B's cat at slot 1 has a
+    // DIFFERENT uuid from home-A's cat (the shared input).
+    const catB = (syncB.body?.cats ?? []).find((c) => c.slotId === 1);
+    if (catB && catB.uuid && catB.uuid !== sharedUuid && /^[0-9a-f]{32}$/.test(catB.uuid)) {
+      log("[cross-home] cat uuid re-minted to avoid global UNIQUE collision", "ok",
+          `home-A=${sharedUuid.slice(0,8)}… home-B=${catB.uuid.slice(0,8)}…`);
+    } else {
+      log("[cross-home] cat uuid re-minted to avoid global UNIQUE collision", "fail",
+          `home-B cat uuid=${catB?.uuid}`);
+    }
+    const userB = (syncB.body?.users ?? []).find((u) => u.slotId === 1);
+    if (userB && userB.uuid && userB.uuid !== sharedUserUuid && /^[0-9a-f]{32}$/.test(userB.uuid)) {
+      log("[cross-home] user uuid re-minted to avoid global UNIQUE collision", "ok",
+          `home-A=${sharedUserUuid.slice(0,8)}… home-B=${userB.uuid.slice(0,8)}…`);
+    } else {
+      log("[cross-home] user uuid re-minted to avoid global UNIQUE collision", "fail",
+          `home-B user uuid=${userB?.uuid}`);
+    }
+  }
+
+  await call("DELETE", "/api/auth/household", null, utA);
+  await call("DELETE", "/api/auth/household", null, utB);
 }
 
 // One full firmware-side simulation of the auto-pair handshake. Used
