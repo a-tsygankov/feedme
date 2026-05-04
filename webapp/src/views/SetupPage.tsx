@@ -98,18 +98,18 @@ export default function SetupPage() {
     if (pin !== pin2)     { setErr("PINs don't match"); return; }
     setBusy(true);
     try {
-      const { token, hid } = await api.setup(name.trim(), pin, deviceId);
+      const { token, hid, pairError } = await api.setup(name.trim(), pin, deviceId);
       auth.set(token, hid);
-      // Carry the deviceId through to the dashboard so the
-      // confirm-pairing banner appears. Phase A pair flow: the
-      // device is in its "Pairing..." screen polling /api/pair/check;
-      // the user clicks Confirm on the dashboard banner; that sends
-      // POST /api/pair/confirm and the device picks up its
-      // DeviceToken on the next poll.
-      const next = deviceId
-        ? `/?pair=${encodeURIComponent(deviceId)}`
-        : "/";
-      navigate(next, { replace: true });
+      // Phase F+ — the backend completes the pair handshake inline
+      // when deviceId is passed, so we don't need a `?pair=…` redirect
+      // to a confirm-pairing banner anymore. The device's /pair/check
+      // returns confirmed within ~15s. If the inline pair failed
+      // (device's pair window expired between QR-scan and submit),
+      // stash a one-shot message so the dashboard can show it.
+      if (pairError) {
+        sessionStorage.setItem("feedme.pairError", pairError);
+      }
+      navigate("/", { replace: true });
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         // Name taken — bounce to login with name + device prefilled

@@ -141,18 +141,41 @@ export async function postPairCancel(env: Env, body: unknown): Promise<Response>
   return json({ status: "cancelled", changed: res.meta.changes ?? 0 });
 }
 
-// ── POST /api/pair/confirm (UserToken auth) ──────────────────────
-export async function postPairConfirm(
-  env: Env,
-  authed: Extract<AuthInfo, { type: "user" }>,
-  body: unknown,
-  secret: string,
-): Promise<Response> {
-  const b = (body ?? {}) as { deviceId?: string };
-  const deviceId = validateDeviceId(b.deviceId);
-  if (!deviceId) return json({ error: "deviceId required" }, { status: 400 });
+// Result discriminator for confirmPairingFor — lets callers decide
+// whether to bubble the error up as an HTTP status or silently move
+// on (the /api/auth/login path passes deviceId optimistically; if the
+// device's pair window expired we want the user to still sign in).
+export type ConfirmPairingResult =
+  | { ok: true;  alreadyPaired: boolean; deviceToken: string }
+  | { ok: false; status: number; error: string };
 
-  const hid = authed.hid;
+// ── confirmPairingFor (shared helper) ─────────────────────────────
+// Performs the device-claim work that used to live exclusively in
+// /api/pair/confirm. Now also called inline from /api/auth/setup,
+// /api/auth/login, and /api/auth/quick-setup so the user doesn't
+// have to click a "Confirm pairing" banner on the dashboard after
+// signing in — the pairing completes in the same round-trip as the
+// auth request, and the device's next /api/pair/check returns
+// confirmed within ~15 s without any further webapp interaction.
+//
+// Steps:
+//   1. Look up pending_pairings for the device. Refuse with
+//      404/410 if missing / cancelled / expired.
+//   2. If already confirmed for THIS home: re-issue token (idempotent).
+//      If confirmed for a DIFFERENT home: 409.
+//   3. Otherwise: mint DeviceToken, INSERT/UPDATE pairings row,
+//      INSERT/UPDATE legacy devices row, write the token + home_hid +
+//      confirmed_at into pending_pairings so /api/pair/check sees it.
+//
+// Callers should pass `secret` from resolveSecret(env). The
+// returned deviceToken is whatever the device will pick up on its
+// next /pair/check; auth handlers don't need it (the user gets a
+// UserToken from the calling endpoint), but the helper returns it
+// for symmetry + so a future "show device token in webapp" feature
+// can use it without a second SQL round-trip.
+export async function confirmPairingFor(
+  env: Env, hid: string, deviceId: string, secret: string,
+): Promise<ConfirmPairingResult> {
   const row = await env.DB.prepare(
     `SELECT expires_at, home_hid, confirmed_at, cancelled_at
      FROM pending_pairings WHERE device_id = ?`,
@@ -163,42 +186,38 @@ export async function postPairConfirm(
     cancelled_at: number | null;
   }>();
   if (!row) {
-    return json({ error: "no pending pairing for this device — ask user to re-tap Pair on device" },
-                { status: 404 });
+    return { ok: false, status: 404,
+             error: "no pending pairing for this device — ask user to re-tap Pair on device" };
   }
   if (row.cancelled_at) {
-    return json({ error: "device cancelled the pairing" }, { status: 410 });
+    return { ok: false, status: 410, error: "device cancelled the pairing" };
   }
   const now = Math.floor(Date.now() / 1000);
   if (row.expires_at <= now && !row.confirmed_at) {
-    return json({ error: "pairing window expired (3 min) — ask user to re-tap Pair" },
-                { status: 410 });
+    return { ok: false, status: 410,
+             error: "pairing window expired (3 min) — ask user to re-tap Pair" };
   }
 
-  // Idempotency: if already confirmed for the same home, return the
-  // existing token. If confirmed for a *different* home, refuse —
-  // the device side should re-Reset to switch homes.
+  // Idempotency: already confirmed for the same home → re-issue the
+  // token (lets a double-call from a retried auth request succeed
+  // silently). Confirmed for a different home → caller should
+  // surface the 409 to the user.
   if (row.confirmed_at && row.home_hid) {
     if (row.home_hid !== hid) {
-      return json({ error: "device already paired to a different home" },
-                  { status: 409 });
+      return { ok: false, status: 409,
+               error: "device already paired to a different home" };
     }
-    // Re-issue token (let the user double-tap Confirm without losing
-    // their session). Device will accept either one.
     const token = await issueDeviceToken(hid, deviceId, secret);
     await env.DB.prepare(
       "UPDATE pending_pairings SET device_token = ? WHERE device_id = ?",
     ).bind(token, deviceId).run();
-    return json({ ok: true, alreadyPaired: true, deviceId, hid });
+    return { ok: true, alreadyPaired: true, deviceToken: token };
   }
 
-  // Fresh confirmation. Mint a token, write the active pairings row,
-  // update the legacy devices table (so /api/feed keeps translating),
-  // and stash the token on the pending_pairings row for the device's
-  // next /check.
-  // issueDeviceToken signature: (hid, deviceId, secret) — careful
-  // not to swap; an earlier bug minted tokens with the two values
-  // crossed and every /api/sync call returned 401 "pairing revoked".
+  // Fresh confirmation. issueDeviceToken signature is
+  // (hid, deviceId, secret) — careful not to swap; an earlier bug
+  // minted tokens with the two values crossed and every /api/sync
+  // call returned 401 "pairing revoked".
   const token = await issueDeviceToken(hid, deviceId, secret);
 
   // Soft-restore the active pairings row if one was previously
@@ -237,8 +256,32 @@ export async function postPairConfirm(
      WHERE device_id = ?`,
   ).bind(hid, now, token, deviceId).run();
 
-  console.log(`[pair] confirm deviceId='${deviceId}' hid='${hid}'`);
-  return json({ ok: true, deviceId, hid });
+  console.log(`[pair] confirmed deviceId='${deviceId}' hid='${hid}'`);
+  return { ok: true, alreadyPaired: false, deviceToken: token };
+}
+
+// ── POST /api/pair/confirm (UserToken auth) ──────────────────────
+// Kept for back-compat with any client (or in-flight tab) still
+// calling it. New auth flows complete pairing INLINE via
+// confirmPairingFor — no banner click required.
+export async function postPairConfirm(
+  env: Env,
+  authed: Extract<AuthInfo, { type: "user" }>,
+  body: unknown,
+  secret: string,
+): Promise<Response> {
+  const b = (body ?? {}) as { deviceId?: string };
+  const deviceId = validateDeviceId(b.deviceId);
+  if (!deviceId) return json({ error: "deviceId required" }, { status: 400 });
+
+  const res = await confirmPairingFor(env, authed.hid, deviceId, secret);
+  if (!res.ok) return json({ error: res.error }, { status: res.status });
+  return json({
+    ok: true,
+    deviceId,
+    hid: authed.hid,
+    ...(res.alreadyPaired ? { alreadyPaired: true } : {}),
+  });
 }
 
 // ── GET /api/pair/list (UserToken) ───────────────────────────────

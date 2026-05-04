@@ -47,21 +47,20 @@ export default function LoginPage() {
     if (pin.length < 4) { setErr("PIN must be at least 4 digits"); return; }
     setBusy(true);
     try {
-      const { token, hid: returnedHid } = await api.login(
+      const { token, hid: returnedHid, pairError } = await api.login(
         hid.trim(),
         pin,
         initialDevice || undefined,
       );
       auth.set(token, returnedHid);
-      // Carry the deviceId (if we had one) through to the dashboard
-      // so the confirm-pairing banner appears. The legacy
-      // devices-table claim on /api/auth/login is enough for
-      // /api/feed translation, but the new pairings table needs an
-      // explicit /api/pair/confirm — that's what the banner triggers.
-      const next = initialDevice
-        ? `/?pair=${encodeURIComponent(initialDevice)}`
-        : "/";
-      navigate(next, { replace: true });
+      // Phase F+ — backend completes pair-confirm inline; no banner
+      // step on the dashboard. If the inline pair failed (device's
+      // pair window expired), stash a one-shot message so the
+      // dashboard can show it.
+      if (pairError) {
+        sessionStorage.setItem("feedme.pairError", pairError);
+      }
+      navigate("/", { replace: true });
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.status === 404) { setUnknown(true); return; }
