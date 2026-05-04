@@ -160,9 +160,15 @@ void FeedConfirmView::redraw() {
     // Hint line — show what the selection means + how to change it.
     // setScrollingText (matches applyScrollingLabel above) appends a
     // trailing gap so the wrap-around between loops is visible.
-    if (roster_->count() >= 2) {
-        if (feedAll) setScrollingText(hintLbl_, "ALL  CATS  -  PRESS POUR");
-        else         setScrollingText(hintLbl_, cat.name);
+    //
+    // Always include the cat's name when it's set (post user feedback:
+    // earlier N==1 path showed the generic "TURN ADJ PRESS POUR" which
+    // hid the user's chosen name). Multi-cat keeps the "ALL CATS"
+    // affordance for the FEED_ALL selection.
+    if (roster_->count() >= 2 && feedAll) {
+        setScrollingText(hintLbl_, "ALL  CATS  -  PRESS POUR");
+    } else if (cat.name[0] != '\0') {
+        setScrollingText(hintLbl_, cat.name);
     } else {
         setScrollingText(hintLbl_, "TURN  ADJ  PRESS  POUR");
     }

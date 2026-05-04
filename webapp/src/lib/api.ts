@@ -161,6 +161,17 @@ export interface SyncLogEntry {
   duration_ms:    number;
 }
 
+// One row in /api/auth/log — TEMPORARY pair/login audit trail.
+export interface AuthLogEntry {
+  id:             number;
+  ts:             number;
+  kind:           string;            // "pair-start" / "login" / "quick-setup" / etc.
+  identifier:     string | null;     // deviceId or hid attempted
+  result:         "ok" | "error" | string;
+  error_message:  string | null;
+  duration_ms:    number;
+}
+
 // One row in /api/pair/list — drives Settings → Devices.
 export interface PairedDevice {
   deviceId:  string;
@@ -268,6 +279,15 @@ export const api = {
     const params = new URLSearchParams({ n: String(n) });
     if (deviceId) params.set("device", deviceId);
     return apiRaw<{ entries: SyncLogEntry[] }>(`/api/sync/log?${params.toString()}`);
+  },
+
+  // ── Auth/pair log (TEMPORARY diagnostic) ──────────────────────
+  // Same shape as syncLogList; capped at 100/home. ?kind=<event>
+  // narrows to one event type (e.g. only "pair-confirm" failures).
+  authLogList: (kind?: string, n = 100) => {
+    const params = new URLSearchParams({ n: String(n) });
+    if (kind) params.set("kind", kind);
+    return apiRaw<{ entries: AuthLogEntry[] }>(`/api/auth/log?${params.toString()}`);
   },
 
   // ── Per-home settings (Phase E, dev-27) ───────────────────────

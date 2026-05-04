@@ -73,6 +73,14 @@ void SyncingView::render(const feedme::ports::DisplayFrame&) {
     // Doing it here (not in onEnter) gives LVGL a frame to paint
     // the splash before the blocking HTTP call, so the user sees
     // "Syncing ..." rather than a frozen idle for the round-trip.
+    //
+    // Title stays "Syncing" throughout the working phase AND the
+    // success transition — earlier code flipped to "Synced" which
+    // confused users ("the sync is over but the screen still says
+    // 'sync'?"). The transition out of this view is the success
+    // signal; the title doesn't need to announce it. Only the
+    // failure path overwrites the title, since "Failed" needs to
+    // be visible long enough to read.
     if (phase_ == Phase::Starting) {
         phase_ = Phase::Working;
         Serial.println("[syncing] starting POST /api/sync");
@@ -84,7 +92,7 @@ void SyncingView::render(const feedme::ports::DisplayFrame&) {
             lv_label_set_text(hintLbl_, "");
         } else if (ok) {
             phase_ = Phase::Done;
-            lv_label_set_text(titleLbl_, "Synced");
+            // Title stays "Syncing" — see comment above.
             lv_label_set_text(hintLbl_, "");
         } else {
             phase_ = Phase::Failed;
@@ -108,8 +116,12 @@ const char* SyncingView::handleInput(feedme::ports::TapEvent ev) {
 
 const char* SyncingView::nextView() {
     if (phase_ == Phase::Starting || phase_ == Phase::Working) return nullptr;
-    // Result-hold: keep the splash visible for a beat so the user
-    // reads "Synced" / "Failed" / "Cancelled" before we transition.
+    // Success path transitions out IMMEDIATELY — the user doesn't
+    // need to read a "Synced" announcement; the screen-change is
+    // the success signal. Failed/Cancelled get the result-hold
+    // because "Failed" + the error message needs to be visible
+    // long enough to read.
+    if (phase_ == Phase::Done) return "idle";
     if (millis() - finishedMs_ < RESULT_HOLD_MS) return nullptr;
     return "idle";
 }

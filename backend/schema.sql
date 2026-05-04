@@ -185,6 +185,24 @@ CREATE TABLE IF NOT EXISTS login_qr_tokens (
 CREATE INDEX IF NOT EXISTS idx_login_qr_device  ON login_qr_tokens(device_id);
 CREATE INDEX IF NOT EXISTS idx_login_qr_expires ON login_qr_tokens(expires_at);
 
+-- ── Auth + pair audit log (migration 0011, TEMPORARY) ───────────
+-- Per-home trail of every pair / login / quick-setup / set-pin /
+-- login-qr event. Diagnostic surface added at user request to debug
+-- pairing failures; complements sync_logs which only covers /api/sync.
+-- 100-row ring buffer per home, pruned by audit.ts on each insert.
+CREATE TABLE IF NOT EXISTS auth_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  home_hid      TEXT,
+  ts            INTEGER NOT NULL,
+  kind          TEXT NOT NULL,
+  identifier    TEXT,
+  result        TEXT NOT NULL,
+  error_message TEXT,
+  duration_ms   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_auth_logs_home_ts ON auth_logs(home_hid, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_logs_ts      ON auth_logs(ts DESC);
+
 -- ── Migrations ────────────────────────────────────────────────────
 -- This file is the CANONICAL FULL SCHEMA — what a brand-new database
 -- should look like. For existing databases that need to catch up to

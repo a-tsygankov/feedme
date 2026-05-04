@@ -35,6 +35,7 @@
 // pending_pairings entry.
 
 import { issueDeviceToken, type AuthInfo } from "./auth";
+import { recordAuthLog } from "./audit";
 import type { Env } from "./env";
 
 const PAIRING_TTL_SEC = 180;          // 3-minute handshake window
@@ -65,9 +66,13 @@ export function validateDeviceId(raw: unknown): string | null {
 
 // ── POST /api/pair/start ─────────────────────────────────────────
 export async function postPairStart(env: Env, body: unknown): Promise<Response> {
+  const startMs = Date.now();
   const b = (body ?? {}) as { deviceId?: string };
   const deviceId = validateDeviceId(b.deviceId);
-  if (!deviceId) return json({ error: "deviceId required" }, { status: 400 });
+  if (!deviceId) {
+    await recordAuthLog(env, null, "pair-start", null, "error", "deviceId required", startMs);
+    return json({ error: "deviceId required" }, { status: 400 });
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + PAIRING_TTL_SEC;
@@ -83,6 +88,9 @@ export async function postPairStart(env: Env, body: unknown): Promise<Response> 
   ).bind(deviceId, now, expiresAt).run();
 
   console.log(`[pair] start deviceId='${deviceId}' expires=${expiresAt}`);
+  // Pre-pair we don't know the hid yet; log with null hid. The
+  // later confirmPairingFor entry will tie it back.
+  await recordAuthLog(env, null, "pair-start", deviceId, "ok", null, startMs);
   return json({ status: "pending", expiresAt });
 }
 
@@ -270,12 +278,21 @@ export async function postPairConfirm(
   body: unknown,
   secret: string,
 ): Promise<Response> {
+  const startMs = Date.now();
   const b = (body ?? {}) as { deviceId?: string };
   const deviceId = validateDeviceId(b.deviceId);
-  if (!deviceId) return json({ error: "deviceId required" }, { status: 400 });
+  if (!deviceId) {
+    await recordAuthLog(env, authed.hid, "pair-confirm", null, "error", "deviceId required", startMs);
+    return json({ error: "deviceId required" }, { status: 400 });
+  }
 
   const res = await confirmPairingFor(env, authed.hid, deviceId, secret);
-  if (!res.ok) return json({ error: res.error }, { status: res.status });
+  if (!res.ok) {
+    await recordAuthLog(env, authed.hid, "pair-confirm", deviceId, "error", res.error, startMs);
+    return json({ error: res.error }, { status: res.status });
+  }
+  await recordAuthLog(env, authed.hid, "pair-confirm", deviceId, "ok",
+    res.alreadyPaired ? "alreadyPaired" : null, startMs);
   return json({
     ok: true,
     deviceId,

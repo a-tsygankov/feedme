@@ -107,11 +107,14 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
     snprintf(timeBuf, sizeof(timeBuf), "%d:%02d", frame.hour, frame.minute);
     lv_label_set_text(timeLbl_, timeBuf);
 
-    // Kicker: "fed Xm ago" — prefix with active cat name (N>=2) and/or
-    // suffix with "by Y" (when an attribution is available, i.e. a
-    // logged feed has happened with a non-empty `by` field). Adaptive:
-    // N=1 omits cat name; missing/empty by omits "by Y". With both
-    // present: "Mochi · fed 3m ago by Andrey".
+    // Kicker: "<Cat name> · fed Xm ago by Y" — always include the cat
+    // name when it's available, regardless of roster count. Earlier
+    // versions hid the name for N=1 households as an "adaptive UI"
+    // simplification, but users who bothered to name their cat want
+    // to see it (and per the user report, hiding it caused the
+    // "main screen doesn't show cat's name" bug). Falls back to
+    // "fed Xm ago" only when roster_ isn't wired or the active cat
+    // has no name.
     char ageBuf[40];
     if (frame.minutesSinceFeed < 0) {
         snprintf(ageBuf, sizeof(ageBuf), "no record");
@@ -129,9 +132,9 @@ void IdleView::render(const feedme::ports::DisplayFrame& frame) {
                  " by %s", frame.lastFedBy);
     }
     char kickerBuf[64];
-    if (rosterCount >= 2 && roster_) {
-        snprintf(kickerBuf, sizeof(kickerBuf), "%s  ·  %s",
-                 roster_->active().name, ageBuf);
+    const char* catName = (roster_ && rosterCount >= 1) ? roster_->active().name : "";
+    if (catName && catName[0] != '\0') {
+        snprintf(kickerBuf, sizeof(kickerBuf), "%s  ·  %s", catName, ageBuf);
     } else {
         snprintf(kickerBuf, sizeof(kickerBuf), "%s", ageBuf);
     }

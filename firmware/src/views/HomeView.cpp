@@ -59,6 +59,17 @@ void HomeView::build(lv_obj_t* parent) {
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
 
+    // Home name label — top of the screen, above the selection arc.
+    // Tells the user which home this device is signed into. Empty
+    // string before the first pair confirmation; main.cpp updates
+    // the pointer when SyncService picks up the home name from NVS
+    // OR from a fresh /api/pair/check confirmation.
+    homeNameLbl_ = lv_label_create(root_);
+    lv_obj_set_style_text_color(homeNameLbl_, lv_color_hex(kTheme.accent), 0);
+    lv_obj_set_style_text_font(homeNameLbl_, &lv_font_montserrat_14, 0);
+    lv_label_set_text(homeNameLbl_, "");
+    lv_obj_align(homeNameLbl_, LV_ALIGN_TOP_MID, 0, 14);
+
     selectionArc_ = lv_arc_create(root_);
     lv_obj_set_size(selectionArc_, ARC_DIAM_PX, ARC_DIAM_PX);
     lv_obj_center(selectionArc_);
@@ -197,6 +208,15 @@ void HomeView::redraw() {
 void HomeView::onEnter() {
     firstRender_  = true;
     lastDrawnIdx_ = -1;
+    // Refresh the home-name label every entry — the value can change
+    // after a Reset → re-pair cycle, and there's no other obvious
+    // hook for redrawing it. Reads from the live std::string source
+    // wired in by main.cpp (typically &syncService.homeName()).
+    if (homeNameLbl_) {
+        const bool haveName = homeNameSrc_ && !homeNameSrc_->empty();
+        lv_label_set_text(homeNameLbl_,
+                          haveName ? homeNameSrc_->c_str() : "(unpaired)");
+    }
     lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
 }
 

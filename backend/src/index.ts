@@ -8,6 +8,7 @@ import {
   requireType,
   verifyPin,
 } from "./auth";
+import { getAuthLog, recordAuthLog } from "./audit";
 import {
   createCat,
   deleteCat,
@@ -274,18 +275,26 @@ export default {
     // 409 — name already taken
     // 200 — { token, hid }; auth.set on the client + navigate /
     if (url.pathname === "/api/auth/setup" && req.method === "POST") {
+      const setupStartMs = Date.now();
       const body = (await req.json().catch(() => null)) as
         { hid?: string; pin?: string; deviceId?: string } | null;
       const hid = validateHomeName(body?.hid);
-      if (!hid) return json({ error: "valid home name required (1-64 chars)" }, { status: 400 });
+      if (!hid) {
+        await recordAuthLog(env, null, "setup", body?.hid ?? null, "error", "invalid home name", setupStartMs);
+        return json({ error: "valid home name required (1-64 chars)" }, { status: 400 });
+      }
       if (!body?.pin || body.pin.length < 4) {
+        await recordAuthLog(env, hid, "setup", body?.deviceId ?? null, "error", "pin too short", setupStartMs);
         return json({ error: "pin too short (min 4)" }, { status: 400 });
       }
 
       const existing = await env.DB.prepare(
         "SELECT 1 AS x FROM households WHERE hid = ?",
       ).bind(hid).first<{ x: number }>();
-      if (existing) return json({ error: "home name taken" }, { status: 409 });
+      if (existing) {
+        await recordAuthLog(env, hid, "setup", body?.deviceId ?? null, "error", "home name taken", setupStartMs);
+        return json({ error: "home name taken" }, { status: 409 });
+      }
 
       try {
         const { salt, hash } = await hashPin(body.pin);
@@ -331,6 +340,7 @@ export default {
       }
 
       const token = await issueToken(hid, resolveSecret(env));
+      await recordAuthLog(env, hid, "setup", body?.deviceId ?? null, "ok", pairError ?? null, setupStartMs);
       // Phase F — also set the session cookie so browser-based clients
       // get sticky auth without juggling Authorization headers in JS.
       // The token is still returned in the body for non-browser callers
@@ -353,22 +363,28 @@ export default {
     // 401 — wrong pin
     // 200 — { token, hid } + side effect: device claimed
     if (url.pathname === "/api/auth/login" && req.method === "POST") {
+      const loginStartMs = Date.now();
       const body = (await req.json().catch(() => null)) as
         { hid?: string; pin?: string; deviceId?: string } | null;
       const hid = validateHomeName(body?.hid);
       if (!hid || !body?.pin) {
+        await recordAuthLog(env, hid, "login", body?.deviceId ?? null, "error", "hid + pin required", loginStartMs);
         return json({ error: "hid and pin required" }, { status: 400 });
       }
 
       const row = await env.DB.prepare(
         "SELECT pin_salt, pin_hash FROM households WHERE hid = ?",
       ).bind(hid).first<{ pin_salt: string; pin_hash: string }>();
-      if (!row) return json({ error: "no such home" }, { status: 404 });
+      if (!row) {
+        await recordAuthLog(env, hid, "login", body?.deviceId ?? null, "error", "no such home", loginStartMs);
+        return json({ error: "no such home" }, { status: 404 });
+      }
 
       // Phase F — transparent (no-PIN) homes can't be logged into via
       // PIN. They're entered through the Login QR flow instead. See
       // auth.ts/isTransparentHome for the sentinel definition.
       if (isTransparentHome(row)) {
+        await recordAuthLog(env, hid, "login", body?.deviceId ?? null, "error", "transparent home — use login-qr", loginStartMs);
         return json(
           { error: "this home has no PIN; use the Login QR flow" },
           { status: 409 },
@@ -376,7 +392,10 @@ export default {
       }
 
       const ok = await verifyPin(body.pin, row.pin_salt, row.pin_hash);
-      if (!ok) return json({ error: "wrong PIN" }, { status: 401 });
+      if (!ok) {
+        await recordAuthLog(env, hid, "login", body?.deviceId ?? null, "error", "wrong PIN", loginStartMs);
+        return json({ error: "wrong PIN" }, { status: 401 });
+      }
 
       // Inline pair-confirm (Phase F+ workflow): same as /api/auth/setup
       // — if the user came from a device QR, complete the pair handshake
@@ -398,6 +417,7 @@ export default {
       }
 
       const token = await issueToken(hid, resolveSecret(env));
+      await recordAuthLog(env, hid, "login", body?.deviceId ?? null, "ok", pairError ?? null, loginStartMs);
       // Phase F — also set the session cookie. See /api/auth/setup for
       // rationale; same Max-Age + HttpOnly + Secure + SameSite=Lax.
       return json(
@@ -469,6 +489,17 @@ export default {
       const userAuth = requireType(authed, "user");
       if (!userAuth) return json({ error: "user token required" }, { status: 401 });
       return getSyncLog(env, userAuth.hid, url);
+    }
+
+    // GET /api/auth/log (UserToken) — TEMPORARY audit trail of every
+    // pair / login / quick-setup / set-pin / login-qr event for this
+    // home. Diagnostic surface added at the user's request to debug
+    // pairing flow failures. Same 100-entry retention as sync_logs.
+    // Optional ?n=<limit> (1..100) and ?kind=<event>.
+    if (url.pathname === "/api/auth/log" && req.method === "GET") {
+      const userAuth = requireType(authed, "user");
+      if (!userAuth) return json({ error: "user token required" }, { status: 401 });
+      return getAuthLog(env, userAuth.hid, url);
     }
 
     // ── Per-home settings (Phase E, UserToken) ────────────────────
